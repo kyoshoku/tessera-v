@@ -23,4 +23,5 @@ pub trait PoolData: Any {
     fn as_any(&self) -> &dyn Any;
 }
 
+pub mod goonfi;
 pub mod tessera;

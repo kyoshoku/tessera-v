@@ -1,6 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
-use solana_client::{rpc_client::RpcClient, rpc_config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig}};
+use solana_client::{
+    rpc_client::RpcClient,
+    rpc_config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig},
+};
 use solana_sdk::{
     message::{Message, VersionedMessage},
     pubkey::Pubkey,
@@ -16,12 +19,16 @@ mod swap;
 mod utils;
 
 use config::Config;
-use fetch::tessera::{TesseraPoolData, TesseraPoolFetcher};
+use fetch::tessera::{TesseraPool, TesseraPoolFetcher};
 use fetch::PoolFetcher;
+use swap::goonfi::GoonfiSwapBuilder;
 use swap::tessera::TesseraSwapBuilder;
 use swap::SwapBuilder;
 
-use crate::utils::get_pubkey_from_str;
+use crate::{
+    fetch::goonfi::{GoonfiPool, GoonfiPoolFetcher},
+    utils::get_pubkey_from_str,
+};
 
 #[derive(Parser)]
 #[command(name = "dex-tools")]
@@ -144,6 +151,17 @@ async fn handle_read_command(protocol: &str, pool_address: String, config: &Conf
                 }
             }
         }
+        "goonfi" => {
+            let fetcher = GoonfiPoolFetcher::new(client);
+            match fetcher.fetch_pool_data(&pool_address, config).await {
+                Ok(data) => {
+                    data.display();
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                }
+            }
+        }
         _ => {
             println!("Unsupported protocol: {}", protocol);
         }
@@ -165,86 +183,99 @@ async fn handle_swap_command(
     let input_token = get_pubkey_from_str(&input_token)?;
     let client = RpcClient::new(config.get_rpc_url());
 
-    match protocol {
+    // Load payer from config
+    let payer = config
+        .get_payer()
+        .map_err(|e| anyhow::anyhow!("Failed to get payer: {}", e))?;
+    let user = payer.pubkey();
+    println!("User: {}", user);
+
+    let swap_ixs = match protocol {
         "tessera" => {
             // First, read pool data to get the mints and current state
             let fetcher = TesseraPoolFetcher::new(client);
             let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
             pool_data.display();
 
-            // Load payer from config
-            let payer = config
-                .get_payer()
-                .map_err(|e| anyhow::anyhow!("Failed to get payer: {}", e))?;
-            let user = payer.pubkey();
-            println!("User: {}", user);
+            // Build swap instruction
+            let pool_data = pool_data
+                .as_any()
+                .downcast_ref::<TesseraPool>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
+
+            let builder = TesseraSwapBuilder::new(pool_data.clone(), user, config.clone());
+            builder.build_swap(&input_token, amount_in, min_amount_out, true)?
+        }
+        "goonfi" => {
+            // First, read pool data to get the mints and current state
+            let fetcher = GoonfiPoolFetcher::new(client);
+            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
+            pool_data.display();
 
             // Build swap instruction
             let pool_data = pool_data
                 .as_any()
-                .downcast_ref::<TesseraPoolData>()
+                .downcast_ref::<GoonfiPool>()
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
-            let builder = TesseraSwapBuilder::new(pool_data.clone(), user, config.clone());
-
-            let swap_instruction = builder.build_swap(&input_token, amount_in, min_amount_out)?;
-
-            let client = RpcClient::new(config.get_rpc_url());
-            let recent_blockhash = client.get_latest_blockhash()?;
-
-            // Build the transaction
-            let message =
-                Message::new_with_blockhash(&[swap_instruction], Some(&user), &recent_blockhash);
-
-            let versioned_message = VersionedMessage::Legacy(message);
-            let transaction = VersionedTransaction::try_new(versioned_message, &[&payer])?;
-
-            if is_simulate {
-                println!("\nSimulating Transaction...");
-                // Simulate the transaction
-                let simulation_result = client.simulate_transaction_with_config(
-                    &transaction,
-                    RpcSimulateTransactionConfig {
-                        replace_recent_blockhash: true,
-                        sig_verify: false,
-                        ..RpcSimulateTransactionConfig::default()
-                    },
-                )?;
-                match simulation_result.value.err {
-                    None => {
-                        println!("✅ Transaction simulation successful!");
-                        println!(
-                            "Compute Units Consumed: {}",
-                            simulation_result.value.units_consumed.unwrap_or(0)
-                        );
-                        println!("Logs:");
-                        for log in simulation_result.value.logs.unwrap_or_default() {
-                            println!("  {}", log);
-                        }
-                    }
-                    Some(err) => {
-                        println!("❌ Transaction simulation failed: {:?}", err);
-                        println!("Logs:");
-                        for log in simulation_result.value.logs.unwrap_or_default() {
-                            println!("  {}", log);
-                        }
-                    }
-                }
-            } else {
-                println!("\nSubmitting Transaction...");
-                let signature = client.send_transaction_with_config(
-                    &transaction,
-                    RpcSendTransactionConfig {
-                        skip_preflight: true,
-                        ..RpcSendTransactionConfig::default()
-                    },
-                )?;
-                println!("Transaction submitted: {}", signature);
-            }
+            let builder = GoonfiSwapBuilder::new(pool_data.clone(), user, config.clone());
+            builder.build_swap(&input_token, amount_in, min_amount_out, true)?
         }
         _ => {
-            println!("Unsupported protocol: {}", protocol);
+            anyhow::bail!("Unsupported protocol: {}", protocol);
         }
+    };
+
+    let client = RpcClient::new(config.get_rpc_url());
+    let recent_blockhash = client.get_latest_blockhash()?;
+
+    // Build the transaction
+    let message = Message::new_with_blockhash(&swap_ixs, Some(&user), &recent_blockhash);
+
+    let versioned_message = VersionedMessage::Legacy(message);
+    let transaction = VersionedTransaction::try_new(versioned_message, &[&payer])?;
+
+    if is_simulate {
+        println!("\nSimulating Transaction...");
+        // Simulate the transaction
+        let simulation_result = client.simulate_transaction_with_config(
+            &transaction,
+            RpcSimulateTransactionConfig {
+                replace_recent_blockhash: true,
+                sig_verify: false,
+                ..RpcSimulateTransactionConfig::default()
+            },
+        )?;
+        match simulation_result.value.err {
+            None => {
+                println!("✅ Transaction simulation successful!");
+                println!(
+                    "Compute Units Consumed: {}",
+                    simulation_result.value.units_consumed.unwrap_or(0)
+                );
+                println!("Logs:");
+                for log in simulation_result.value.logs.unwrap_or_default() {
+                    println!("  {}", log);
+                }
+            }
+            Some(err) => {
+                println!("❌ Transaction simulation failed: {:?}", err);
+                println!("Logs:");
+                for log in simulation_result.value.logs.unwrap_or_default() {
+                    println!("  {}", log);
+                }
+            }
+        }
+    } else {
+        println!("\nSubmitting Transaction...");
+        let signature = client.send_transaction_with_config(
+            &transaction,
+            RpcSendTransactionConfig {
+                skip_preflight: true,
+                ..RpcSendTransactionConfig::default()
+            },
+        )?;
+        println!("Transaction submitted: {}", signature);
     }
 
     Ok(())

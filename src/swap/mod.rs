@@ -9,17 +9,9 @@ pub trait SwapBuilder {
         input_token: &Pubkey,
         amount_in: u64,
         min_amount_out: u64,
-    ) -> Result<Instruction>;
+        wrap_sol: bool,
+    ) -> Result<Vec<Instruction>>;
 }
 
-use borsh::{BorshDeserialize, BorshSerialize};
-
-/// Common swap parameters
-#[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
-pub struct SwapParams {
-    pub side: u8,            // Protocol-specific side indicator
-    pub amount_in: u64,      // Input amount
-    pub min_amount_out: u64, // Minimum output amount (slippage protection)
-}
-
+pub mod goonfi;
 pub mod tessera;

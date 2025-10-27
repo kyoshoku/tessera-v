@@ -29,12 +29,15 @@ cargo run -- read -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
 
 # Read pool data with specific protocol
 cargo run -- --protocol tessera read -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
+cargo run -- --protocol goonfi read -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46
 
 # Build and submit swap transaction
 cargo run -- swap -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 100000
+cargo run --  --protocol goonfi swap -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 100000
 
 # Simulate swap transaction (builds and simulates actual transaction)
 cargo run -- simulate -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 100000
+cargo run --  --protocol goonfi simulate -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 100000
 
 ```
 

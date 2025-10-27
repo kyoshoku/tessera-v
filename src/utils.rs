@@ -1,7 +1,11 @@
+use solana_program::system_instruction::transfer;
+use solana_sdk::instruction::Instruction;
 use solana_sdk::pubkey::Pubkey;
+use spl_associated_token_account::instruction::create_associated_token_account_idempotent;
+use spl_token::instruction::{close_account, sync_native};
 use std::str::FromStr;
 
-use crate::constants::ATA_PROGRAM_ID;
+use crate::constants::{ATA_PROGRAM_ID, WSOL_MINT};
 
 /// Helper function to get Pubkey from string constant
 pub fn get_pubkey_from_str(s: &str) -> Result<Pubkey, solana_sdk::pubkey::ParsePubkeyError> {
@@ -16,4 +20,27 @@ pub fn get_ata(owner: &Pubkey, mint: &Pubkey, token_program_id: &Pubkey) -> Pubk
         &associated_token_program_id,
     )
     .0
+}
+
+pub fn build_wrap_sol_instruction(user: &Pubkey, ata: &Pubkey, lamports: u64) -> Vec<Instruction> {
+    let mut ixs = vec![];
+
+    ixs.push(create_associated_token_account_idempotent(
+        user,
+        user,
+        &Pubkey::from_str(WSOL_MINT).unwrap(),
+        &spl_token::ID,
+    ));
+    if lamports > 0 {
+        ixs.push(transfer(user, ata, lamports));
+    }
+    ixs.push(sync_native(&spl_token::ID, ata).unwrap());
+    ixs
+}
+
+pub fn build_unwrap_sol_instruction(user: &Pubkey, ata: &Pubkey) -> Vec<Instruction> {
+    let mut ixs = vec![];
+
+    ixs.push(close_account(&spl_token::ID, ata, user, user, &[user]).unwrap());
+    ixs
 }
