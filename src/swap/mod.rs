@@ -16,4 +16,5 @@ pub trait SwapBuilder {
 }
 
 pub mod goonfi;
+pub mod obric;
 pub mod tessera;

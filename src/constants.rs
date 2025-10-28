@@ -11,6 +11,10 @@ pub const TESSERA_AUTHORITY: &str = "8ekCy2jHHUbW2yeNGFWYJT9Hm9FW7SvZcZK66dSZCDi
 pub const GOONFI_SWAP_SELECTOR: [u8; 1] = [0x2];
 pub const GOONFI_PROGRAM_ID: &str = "goonERTdGsjnkZqWuVjs73BZ3Pb9qoCUdBUL17BnS5j";
 
+/// Obric values
+pub const OBRIC_SWAP_SELECTOR: [u8; 8] = [65, 75, 63, 76, 235, 91, 91, 136];
+pub const OBRIC_PROGRAM_ID: &str = "obriQD1zbpyLz95G5n7nJe6a4DPjpFwa5XYPoNm113y";
+
 /// Default RPC URL for mainnet
 pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 

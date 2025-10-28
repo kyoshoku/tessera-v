@@ -7,7 +7,6 @@ use spl_token::instruction::{close_account, sync_native};
 use std::str::FromStr;
 
 use crate::constants::{ATA_PROGRAM_ID, EXECUTOR_PROGRAM_ID, WSOL_MINT};
-use crate::swap;
 
 /// Helper function to get Pubkey from string constant
 pub fn get_pubkey_from_str(s: &str) -> Result<Pubkey, solana_sdk::pubkey::ParsePubkeyError> {
@@ -52,15 +51,10 @@ pub fn build_unwrap_sol_instruction(user: &Pubkey, ata: &Pubkey) -> Vec<Instruct
     ixs
 }
 
-pub fn build_executor_instruction(
-    signer: Pubkey,
-    program_id: Pubkey,
-    swap_accounts: Vec<AccountMeta>,
-    swap_data: Vec<u8>,
-) -> Instruction {
+pub fn build_executor_instruction(signer: Pubkey, ix: Instruction) -> Instruction {
     // Extend executor ix data
     let mut data = get_anchor_discriminator("global:execute_swap");
-    data.extend_from_slice(&swap_data);
+    data.extend_from_slice(&ix.data);
     println!("Executor data len: {}", data.len());
 
     let mut accounts = vec![];
@@ -70,7 +64,7 @@ pub fn build_executor_instruction(
         is_writable: true,
     });
     accounts.push(AccountMeta {
-        pubkey: program_id,
+        pubkey: ix.program_id,
         is_signer: false,
         is_writable: false,
     });
@@ -80,7 +74,7 @@ pub fn build_executor_instruction(
         is_writable: false,
     });
 
-    accounts.extend(swap_accounts);
+    accounts.extend(ix.accounts);
 
     Instruction {
         program_id: Pubkey::from_str(EXECUTOR_PROGRAM_ID).unwrap(),

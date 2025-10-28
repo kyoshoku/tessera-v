@@ -64,8 +64,7 @@ impl SwapBuilder for TesseraSwapBuilder {
         let swap_ix = self
             .build_swap_instruction(input_mint, amount_in, min_amount_out)
             .unwrap();
-        let executor_ix =
-            build_executor_instruction(self.user, self.get_program_id(), swap_ix.accounts, swap_ix.data);
+        let executor_ix = build_executor_instruction(self.user, swap_ix);
         instructions.push(executor_ix);
 
         if wrap_sol {

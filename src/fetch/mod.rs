@@ -25,3 +25,4 @@ pub trait PoolData: Any {
 
 pub mod goonfi;
 pub mod tessera;
+pub mod obric;

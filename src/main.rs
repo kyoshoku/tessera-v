@@ -26,7 +26,11 @@ use swap::tessera::TesseraSwapBuilder;
 use swap::SwapBuilder;
 
 use crate::{
-    fetch::goonfi::{GoonfiPool, GoonfiPoolFetcher},
+    fetch::{
+        goonfi::{GoonfiPool, GoonfiPoolFetcher},
+        obric::{ObricPool, ObricPoolFetcher},
+    },
+    swap::obric::ObricSwapBuilder,
     utils::get_pubkey_from_str,
 };
 
@@ -162,6 +166,17 @@ async fn handle_read_command(protocol: &str, pool_address: String, config: &Conf
                 }
             }
         }
+        "obric" => {
+            let fetcher = ObricPoolFetcher::new(client);
+            match fetcher.fetch_pool_data(&pool_address, config).await {
+                Ok(data) => {
+                    data.display();
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                }
+            }
+        }
         _ => {
             println!("Unsupported protocol: {}", protocol);
         }
@@ -219,6 +234,20 @@ async fn handle_swap_command(
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
             let builder = GoonfiSwapBuilder::new(pool_data.clone(), user, config.clone());
+            builder.build_swap(&input_token, amount_in, min_amount_out, true)?
+        }
+        "obric" => {
+            let fetcher = ObricPoolFetcher::new(client);
+            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
+            pool_data.display();
+
+            // Build swap instruction
+            let pool_data = pool_data
+                .as_any()
+                .downcast_ref::<ObricPool>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
+
+            let builder = ObricSwapBuilder::new(pool_data.clone(), user, config.clone());
             builder.build_swap(&input_token, amount_in, min_amount_out, true)?
         }
         _ => {

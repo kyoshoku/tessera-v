@@ -1,0 +1,126 @@
+use crate::{
+    config::Config,
+    fetch::{PoolData, PoolFetcher},
+};
+use anyhow::Result;
+use solana_client::rpc_client::RpcClient;
+use solana_sdk::{program_pack::Pack, pubkey::Pubkey};
+use spl_token::state::Mint;
+
+/// Tessera pool account data
+#[derive(Debug, Clone)]
+pub struct ObricPool {
+    pub pk: Pubkey,
+    pub mint_a: Pubkey,
+    pub mint_b: Pubkey,
+    pub vault_a: Pubkey,
+    pub vault_b: Pubkey,
+    pub token_program_a: Pubkey,
+    pub token_program_b: Pubkey,
+    pub oracle_price: f64, // in USD
+
+    pub price_feed_x: Pubkey,
+    pub price_feed_y: Pubkey,
+    pub protocol_fee_x: Pubkey,
+    pub protocol_fee_y: Pubkey,
+    pub mint_sslp_x: Pubkey,
+    pub mint_sslp_y: Pubkey,
+}
+
+impl PoolData for ObricPool {
+    fn display(&self) {
+        println!("Mint A: {}", self.mint_a);
+        println!("Mint B: {}", self.mint_b);
+        println!("Oracle Price: ${:.4}", self.oracle_price);
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+pub struct ObricPoolFetcher {
+    client: RpcClient,
+}
+
+impl ObricPoolFetcher {
+    pub fn new(client: RpcClient) -> Self {
+        Self { client }
+    }
+}
+
+impl PoolFetcher for ObricPoolFetcher {
+    async fn fetch_pool_data(
+        &self,
+        pool_address: &Pubkey,
+        _config: &Config,
+    ) -> Result<Box<dyn PoolData>> {
+        let account = self.client.get_account(pool_address)?;
+        let data = &account.data;
+
+        // Parse according to Obric structure
+        // Discriminator @ bytes 0-7
+        let _discriminator = data[0..8].to_vec();
+
+        let price_feed_x_bytes = &data[9..41];
+        let price_feed_x = Pubkey::new_from_array(price_feed_x_bytes.try_into().unwrap());
+        let price_feed_y_bytes = &data[41..73];
+        let price_feed_y = Pubkey::new_from_array(price_feed_y_bytes.try_into().unwrap());
+
+        let vault_a_bytes = &data[73..105];
+        let vault_a = Pubkey::new_from_array(vault_a_bytes.try_into().unwrap());
+        let vault_b_bytes = &data[105..137];
+        let vault_b = Pubkey::new_from_array(vault_b_bytes.try_into().unwrap());
+
+        let protocol_fee_x_bytes = &data[137..169];
+        let protocol_fee_x = Pubkey::new_from_array(protocol_fee_x_bytes.try_into().unwrap());
+        let protocol_fee_y_bytes = &data[169..201];
+        let protocol_fee_y = Pubkey::new_from_array(protocol_fee_y_bytes.try_into().unwrap());
+
+        let mint_a_bytes = &data[202..234];
+        let mint_a = Pubkey::new_from_array(mint_a_bytes.try_into().unwrap());
+        let mint_b_bytes = &data[234..266];
+        let mint_b = Pubkey::new_from_array(mint_b_bytes.try_into().unwrap());
+
+        let mint_sslp_x_bytes = &data[482..514];
+        let mint_sslp_x = Pubkey::new_from_array(mint_sslp_x_bytes.try_into().unwrap());
+        let mint_sslp_y_bytes = &data[514..546];
+        let mint_sslp_y = Pubkey::new_from_array(mint_sslp_y_bytes.try_into().unwrap());
+
+        // Get the mintA info
+        let mint_a_account = self.client.get_account(&mint_a)?;
+        let mint_a_decimals = Mint::unpack_unchecked(&mint_a_account.data)
+            .unwrap()
+            .decimals;
+        let token_program_a = mint_a_account.owner;
+
+        let mint_b_account = self.client.get_account(&mint_b)?;
+        let mint_b_decimals = Mint::unpack_unchecked(&mint_b_account.data)
+            .unwrap()
+            .decimals;
+        let token_program_b = mint_b_account.owner;
+
+        // Oracle Price @ byte 128 (8 bytes, u64 in pico-USDC)
+        let oracle_x = u64::from_le_bytes(data[306..314].try_into().unwrap());
+        let oracle_y = u64::from_le_bytes(data[314..322].try_into().unwrap());
+        let oracle_price = (oracle_x as f64 / oracle_y as f64)
+            * 10f64.powi(mint_a_decimals as i32 - mint_b_decimals as i32);
+
+        Ok(Box::new(ObricPool {
+            pk: *pool_address,
+            oracle_price,
+            mint_a,
+            mint_b,
+            vault_a,
+            vault_b,
+            token_program_a,
+            token_program_b,
+            price_feed_x,
+            price_feed_y,
+            protocol_fee_x,
+            protocol_fee_y,
+            mint_sslp_x,
+            mint_sslp_y,
+        }))
+    }
+}
