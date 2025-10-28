@@ -2,7 +2,9 @@ use crate::config::Config;
 use crate::constants::{TESSERA_SWAP_SELECTOR, WSOL_MINT};
 use crate::fetch::tessera::TesseraPool;
 use crate::swap::SwapBuilder;
-use crate::utils::{build_unwrap_sol_instruction, build_wrap_sol_instruction, get_ata};
+use crate::utils::{
+    build_executor_instruction, build_unwrap_sol_instruction, build_wrap_sol_instruction, get_ata,
+};
 use anyhow::Result;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -35,6 +37,10 @@ impl TesseraSwapBuilder {
 }
 
 impl SwapBuilder for TesseraSwapBuilder {
+    fn get_program_id(&self) -> Pubkey {
+        self.config.get_tessera_program_id()
+    }
+
     /// Build swap instruction with automatic side detection based on input token
     fn build_swap(
         &self,
@@ -55,10 +61,12 @@ impl SwapBuilder for TesseraSwapBuilder {
         }
 
         // Build the swap instruction
-        instructions.push(
-            self.build_swap_instruction(input_mint, amount_in, min_amount_out)
-                .unwrap(),
-        );
+        let swap_ix = self
+            .build_swap_instruction(input_mint, amount_in, min_amount_out)
+            .unwrap();
+        let executor_ix =
+            build_executor_instruction(self.user, self.get_program_id(), swap_ix.accounts, swap_ix.data);
+        instructions.push(executor_ix);
 
         if wrap_sol {
             instructions.extend(build_unwrap_sol_instruction(&self.user, &wsol_ata));

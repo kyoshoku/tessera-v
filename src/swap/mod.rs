@@ -11,6 +11,8 @@ pub trait SwapBuilder {
         min_amount_out: u64,
         wrap_sol: bool,
     ) -> Result<Vec<Instruction>>;
+
+    fn get_program_id(&self) -> Pubkey;
 }
 
 pub mod goonfi;

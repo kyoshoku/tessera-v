@@ -1,5 +1,6 @@
 /// Common pubkeys
 pub const ATA_PROGRAM_ID: &str = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+pub const EXECUTOR_PROGRAM_ID: &str = "G4KYKzZdhuLfW4E1vZd2oDdZvpsjN98aNp2E45CC4tXK";
 
 /// Tessera values
 pub const TESSERA_SWAP_SELECTOR: [u8; 1] = [0x10];

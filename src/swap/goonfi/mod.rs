@@ -36,6 +36,10 @@ impl GoonfiSwapBuilder {
 }
 
 impl SwapBuilder for GoonfiSwapBuilder {
+    fn get_program_id(&self) -> Pubkey {
+        self.config.get_goonfi_program_id()
+    }
+
     /// Build swap instruction with automatic side detection based on input token
     fn build_swap(
         &self,

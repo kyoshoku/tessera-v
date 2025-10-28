@@ -1,11 +1,13 @@
+use sha2::{Digest, Sha256};
 use solana_program::system_instruction::transfer;
-use solana_sdk::instruction::Instruction;
+use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
 use spl_associated_token_account::instruction::create_associated_token_account_idempotent;
 use spl_token::instruction::{close_account, sync_native};
 use std::str::FromStr;
 
-use crate::constants::{ATA_PROGRAM_ID, WSOL_MINT};
+use crate::constants::{ATA_PROGRAM_ID, EXECUTOR_PROGRAM_ID, WSOL_MINT};
+use crate::swap;
 
 /// Helper function to get Pubkey from string constant
 pub fn get_pubkey_from_str(s: &str) -> Result<Pubkey, solana_sdk::pubkey::ParsePubkeyError> {
@@ -20,6 +22,11 @@ pub fn get_ata(owner: &Pubkey, mint: &Pubkey, token_program_id: &Pubkey) -> Pubk
         &associated_token_program_id,
     )
     .0
+}
+
+pub fn get_anchor_discriminator(name: &str) -> Vec<u8> {
+    let discriminator = &Sha256::digest(name.as_bytes())[0..8];
+    discriminator.to_vec()
 }
 
 pub fn build_wrap_sol_instruction(user: &Pubkey, ata: &Pubkey, lamports: u64) -> Vec<Instruction> {
@@ -43,4 +50,41 @@ pub fn build_unwrap_sol_instruction(user: &Pubkey, ata: &Pubkey) -> Vec<Instruct
 
     ixs.push(close_account(&spl_token::ID, ata, user, user, &[user]).unwrap());
     ixs
+}
+
+pub fn build_executor_instruction(
+    signer: Pubkey,
+    program_id: Pubkey,
+    swap_accounts: Vec<AccountMeta>,
+    swap_data: Vec<u8>,
+) -> Instruction {
+    // Extend executor ix data
+    let mut data = get_anchor_discriminator("global:execute_swap");
+    data.extend_from_slice(&swap_data);
+    println!("Executor data len: {}", data.len());
+
+    let mut accounts = vec![];
+    accounts.push(AccountMeta {
+        pubkey: signer,
+        is_signer: true,
+        is_writable: true,
+    });
+    accounts.push(AccountMeta {
+        pubkey: program_id,
+        is_signer: false,
+        is_writable: false,
+    });
+    accounts.push(AccountMeta {
+        pubkey: solana_sdk::sysvar::instructions::ID,
+        is_signer: false,
+        is_writable: false,
+    });
+
+    accounts.extend(swap_accounts);
+
+    Instruction {
+        program_id: Pubkey::from_str(EXECUTOR_PROGRAM_ID).unwrap(),
+        accounts,
+        data,
+    }
 }
