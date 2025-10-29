@@ -9,7 +9,6 @@ pub trait SwapBuilder {
         input_token: &Pubkey,
         amount_in: u64,
         min_amount_out: u64,
-        wrap_sol: bool,
     ) -> Result<Vec<Instruction>>;
 
     fn get_program_id(&self) -> Pubkey;
@@ -17,4 +16,5 @@ pub trait SwapBuilder {
 
 pub mod goonfi;
 pub mod obric;
+pub mod saros_amm;
 pub mod tessera;

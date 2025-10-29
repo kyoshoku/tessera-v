@@ -10,6 +10,10 @@ use solana_sdk::{
     signature::Signer,
     transaction::VersionedTransaction,
 };
+use spl_associated_token_account::{
+    get_associated_token_address_with_program_id,
+    instruction::create_associated_token_account_idempotent,
+};
 use std::str::FromStr;
 
 mod config;
@@ -26,12 +30,16 @@ use swap::tessera::TesseraSwapBuilder;
 use swap::SwapBuilder;
 
 use crate::{
+    constants::WSOL_MINT,
     fetch::{
         goonfi::{GoonfiPool, GoonfiPoolFetcher},
         obric::{ObricPool, ObricPoolFetcher},
+        saros_amm::{SarosPool, SarosPoolFetcher},
     },
-    swap::obric::ObricSwapBuilder,
-    utils::get_pubkey_from_str,
+    swap::{obric::ObricSwapBuilder, saros_amm::SarosSwapBuilder},
+    utils::{
+        build_unwrap_sol_instruction, build_wrap_sol_instruction, get_ata, get_pubkey_from_str,
+    },
 };
 
 #[derive(Parser)]
@@ -177,6 +185,17 @@ async fn handle_read_command(protocol: &str, pool_address: String, config: &Conf
                 }
             }
         }
+        "saros" => {
+            let fetcher = SarosPoolFetcher::new(client);
+            match fetcher.fetch_pool_data(&pool_address, config).await {
+                Ok(data) => {
+                    data.display();
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                }
+            }
+        }
         _ => {
             println!("Unsupported protocol: {}", protocol);
         }
@@ -205,7 +224,24 @@ async fn handle_swap_command(
     let user = payer.pubkey();
     println!("User: {}", user);
 
-    let swap_ixs = match protocol {
+    let mut pre_ixs = vec![];
+
+    let wsol_ata = get_associated_token_address_with_program_id(&user, &WSOL_MINT, &spl_token::ID);
+    let wrap_sol = input_token.eq(&WSOL_MINT) || input_token.eq(&WSOL_MINT);
+    if wrap_sol {
+        let wrap_sol_amount = if input_token.eq(&WSOL_MINT) {
+            amount_in
+        } else {
+            0
+        };
+        pre_ixs.extend(build_wrap_sol_instruction(
+            &user,
+            &wsol_ata,
+            wrap_sol_amount,
+        ));
+    }
+
+    let (output_token, swap_ixs) = match protocol {
         "tessera" => {
             // First, read pool data to get the mints and current state
             let fetcher = TesseraPoolFetcher::new(client);
@@ -219,7 +255,14 @@ async fn handle_swap_command(
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
             let builder = TesseraSwapBuilder::new(pool_data.clone(), user, config.clone());
-            builder.build_swap(&input_token, amount_in, min_amount_out, true)?
+            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
+
+            let output_token = if input_token.eq(&pool_data.mint_a) {
+                pool_data.mint_b
+            } else {
+                pool_data.mint_a
+            };
+            (output_token, swap_ixs)
         }
         "goonfi" => {
             // First, read pool data to get the mints and current state
@@ -234,7 +277,14 @@ async fn handle_swap_command(
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
             let builder = GoonfiSwapBuilder::new(pool_data.clone(), user, config.clone());
-            builder.build_swap(&input_token, amount_in, min_amount_out, true)?
+            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
+
+            let output_token = if input_token.eq(&pool_data.mint_a) {
+                pool_data.mint_b
+            } else {
+                pool_data.mint_a
+            };
+            (output_token, swap_ixs)
         }
         "obric" => {
             let fetcher = ObricPoolFetcher::new(client);
@@ -248,18 +298,69 @@ async fn handle_swap_command(
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
             let builder = ObricSwapBuilder::new(pool_data.clone(), user, config.clone());
-            builder.build_swap(&input_token, amount_in, min_amount_out, true)?
+            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
+
+            let output_token = if input_token.eq(&pool_data.mint_a) {
+                pool_data.mint_b
+            } else {
+                pool_data.mint_a
+            };
+            (output_token, swap_ixs)
+        }
+        "saros" => {
+            let fetcher = SarosPoolFetcher::new(client);
+            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
+            pool_data.display();
+
+            // Build swap instruction
+            let pool_data = pool_data
+                .as_any()
+                .downcast_ref::<SarosPool>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
+
+            let builder = SarosSwapBuilder::new(pool_data.clone(), user, config.clone());
+            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
+
+            let output_token = if input_token.eq(&pool_data.mint_a) {
+                pool_data.mint_b
+            } else {
+                pool_data.mint_a
+            };
+            (output_token, swap_ixs)
         }
         _ => {
             anyhow::bail!("Unsupported protocol: {}", protocol);
         }
     };
 
+    if !wrap_sol {
+        let output_ata = get_ata(&user, &output_token, &spl_token::ID);
+
+        let client = RpcClient::new(config.get_rpc_url());
+        let output_ata_exists = client.get_account(&output_ata).is_ok();
+        if !output_ata_exists {
+            pre_ixs.push(create_associated_token_account_idempotent(
+                &user,
+                &user,
+                &output_token,
+                &spl_token::ID,
+            ));
+        }
+    }
+
+    let post_ixs = if wrap_sol {
+        build_unwrap_sol_instruction(&user, &wsol_ata)
+    } else {
+        vec![]
+    };
+
+    let ixs = [pre_ixs, swap_ixs, post_ixs].concat();
+
     let client = RpcClient::new(config.get_rpc_url());
     let recent_blockhash = client.get_latest_blockhash()?;
 
     // Build the transaction
-    let message = Message::new_with_blockhash(&swap_ixs, Some(&user), &recent_blockhash);
+    let message = Message::new_with_blockhash(&ixs, Some(&user), &recent_blockhash);
 
     let versioned_message = VersionedMessage::Legacy(message);
     let transaction = VersionedTransaction::try_new(versioned_message, &[&payer])?;

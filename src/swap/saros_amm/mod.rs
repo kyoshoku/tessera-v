@@ -1,8 +1,8 @@
 use crate::config::Config;
-use crate::constants::TESSERA_SWAP_SELECTOR;
-use crate::fetch::tessera::TesseraPool;
+use crate::constants::SAROS_SWAP_SELECTOR;
+use crate::fetch::saros_amm::SarosPool;
 use crate::swap::SwapBuilder;
-use crate::utils::{build_executor_instruction, get_ata};
+use crate::utils::get_ata;
 use anyhow::Result;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -14,27 +14,26 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// Common swap parameters
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct SwapParams {
-    pub side: u8,            // Protocol-specific side indicator
     pub amount_in: u64,      // Input amount
     pub min_amount_out: u64, // Minimum output amount (slippage protection)
 }
 
-/// Tessera swap instruction builder
-pub struct TesseraSwapBuilder {
-    pool: TesseraPool,
+/// Saros swap instruction builder
+pub struct SarosSwapBuilder {
+    pool: SarosPool,
     config: Config,
     user: Pubkey,
 }
 
-impl TesseraSwapBuilder {
-    pub fn new(pool: TesseraPool, user: Pubkey, config: Config) -> Self {
+impl SarosSwapBuilder {
+    pub fn new(pool: SarosPool, user: Pubkey, config: Config) -> Self {
         Self { pool, user, config }
     }
 }
 
-impl SwapBuilder for TesseraSwapBuilder {
+impl SwapBuilder for SarosSwapBuilder {
     fn get_program_id(&self) -> Pubkey {
-        self.config.tessera_program_id
+        self.config.saros_program_id
     }
 
     /// Build swap instruction with automatic side detection based on input token
@@ -48,14 +47,13 @@ impl SwapBuilder for TesseraSwapBuilder {
         let swap_ix = self
             .build_swap_instruction(input_mint, amount_in, min_amount_out)
             .unwrap();
-        let executor_ix = build_executor_instruction(self.user, swap_ix);
-        instructions.push(executor_ix);
+        instructions.push(swap_ix);
 
         Ok(instructions)
     }
 }
 
-impl TesseraSwapBuilder {
+impl SarosSwapBuilder {
     /// Build the core swap instruction
     fn build_swap_instruction(
         &self,
@@ -63,34 +61,44 @@ impl TesseraSwapBuilder {
         amount_in: u64,
         min_amount_out: u64,
     ) -> Result<Instruction> {
-        let side = input_mint.eq(&self.pool.mint_a) as u8;
         let swap_params = SwapParams {
-            side,
             amount_in,
             min_amount_out,
         };
 
         // Tessera swap data
-        let mut data = Vec::with_capacity(18);
-        data.extend_from_slice(&TESSERA_SWAP_SELECTOR);
+        let mut data = Vec::with_capacity(17);
+        data.extend_from_slice(&SAROS_SWAP_SELECTOR);
         data.extend_from_slice(&borsh::to_vec(&swap_params)?);
+
+        let is_a_to_b = input_mint.eq(&self.pool.mint_a);
 
         let user_ata_a = get_ata(&self.user, &self.pool.mint_a, &self.pool.token_program_a);
         let user_ata_b = get_ata(&self.user, &self.pool.mint_b, &self.pool.token_program_b);
 
+        let (user_source, user_destination) = if is_a_to_b {
+            (user_ata_a, user_ata_b)
+        } else {
+            (user_ata_b, user_ata_a)
+        };
+
+        let (vault_source, vault_destination) = if is_a_to_b {
+            (self.pool.vault_a, self.pool.vault_b)
+        } else {
+            (self.pool.vault_b, self.pool.vault_a)
+        };
+
         let accounts = vec![
-            AccountMeta::new_readonly(self.config.tessera_authority, false),
-            AccountMeta::new(self.pool.pk, false),
+            AccountMeta::new_readonly(self.pool.pk, false),
+            AccountMeta::new_readonly(self.pool.swap_authority, false),
             AccountMeta::new(self.user, true), // signer
-            AccountMeta::new(self.pool.vault_a, false),
-            AccountMeta::new(self.pool.vault_b, false),
-            AccountMeta::new(user_ata_a, false),
-            AccountMeta::new(user_ata_b, false),
-            AccountMeta::new_readonly(self.pool.mint_a, false),
-            AccountMeta::new_readonly(self.pool.mint_b, false),
-            AccountMeta::new_readonly(self.pool.token_program_a, false),
-            AccountMeta::new_readonly(self.pool.token_program_b, false),
-            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
+            AccountMeta::new(user_source, false),
+            AccountMeta::new(vault_source, false),
+            AccountMeta::new(vault_destination, false),
+            AccountMeta::new(user_destination, false),
+            AccountMeta::new(self.pool.pool_mint, false),
+            AccountMeta::new(self.pool.pool_fee, false),
+            AccountMeta::new_readonly(self.pool.token_program, false),
         ];
 
         Ok(Instruction {

@@ -15,10 +15,9 @@ pub fn get_pubkey_from_str(s: &str) -> Result<Pubkey, solana_sdk::pubkey::ParseP
 
 // Manual implementation of get_associated_token_address
 pub fn get_ata(owner: &Pubkey, mint: &Pubkey, token_program_id: &Pubkey) -> Pubkey {
-    let associated_token_program_id = Pubkey::from_str(ATA_PROGRAM_ID).unwrap();
     Pubkey::find_program_address(
         &[owner.as_ref(), token_program_id.as_ref(), mint.as_ref()],
-        &associated_token_program_id,
+        &ATA_PROGRAM_ID,
     )
     .0
 }
@@ -34,7 +33,7 @@ pub fn build_wrap_sol_instruction(user: &Pubkey, ata: &Pubkey, lamports: u64) ->
     ixs.push(create_associated_token_account_idempotent(
         user,
         user,
-        &Pubkey::from_str(WSOL_MINT).unwrap(),
+        &WSOL_MINT,
         &spl_token::ID,
     ));
     if lamports > 0 {
@@ -77,7 +76,7 @@ pub fn build_executor_instruction(signer: Pubkey, ix: Instruction) -> Instructio
     accounts.extend(ix.accounts);
 
     Instruction {
-        program_id: Pubkey::from_str(EXECUTOR_PROGRAM_ID).unwrap(),
+        program_id: EXECUTOR_PROGRAM_ID,
         accounts,
         data,
     }

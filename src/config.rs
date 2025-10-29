@@ -1,5 +1,6 @@
 use crate::constants::{
-    DEFAULT_RPC_URL, GOONFI_PROGRAM_ID, OBRIC_PROGRAM_ID, TESSERA_AUTHORITY, TESSERA_PROGRAM_ID,
+    DEFAULT_RPC_URL, GOONFI_PROGRAM_ID, OBRIC_PROGRAM_ID, SAROS_PROGRAM_ID, TESSERA_AUTHORITY,
+    TESSERA_PROGRAM_ID,
 };
 use anyhow::Result;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
@@ -8,10 +9,11 @@ use std::{env, str::FromStr};
 #[derive(Debug, Clone)]
 pub struct Config {
     pub rpc_url: String,
-    pub tessera_program_id: String,
-    pub tessera_authority: String,
-    pub goonfi_program_id: String,
-    pub obric_program_id: String,
+    pub tessera_program_id: Pubkey,
+    pub tessera_authority: Pubkey,
+    pub goonfi_program_id: Pubkey,
+    pub obric_program_id: Pubkey,
+    pub saros_program_id: Pubkey,
     pub payer_pk: String,
 }
 
@@ -28,14 +30,17 @@ impl Config {
             env::var("GOONFI_PROGRAM_ID").unwrap_or_else(|_| GOONFI_PROGRAM_ID.to_string());
         let obric_program_id =
             env::var("OBRIC_PROGRAM_ID").unwrap_or_else(|_| OBRIC_PROGRAM_ID.to_string());
+        let saros_program_id =
+            env::var("SAROS_PROGRAM_ID").unwrap_or_else(|_| SAROS_PROGRAM_ID.to_string());
         let payer_pk = env::var("WALLET_PRIVATE_KEY").unwrap_or_else(|_| "".to_string());
 
         Ok(Self {
             rpc_url,
-            tessera_program_id,
-            tessera_authority,
-            goonfi_program_id,
-            obric_program_id,
+            tessera_program_id: Pubkey::from_str(&tessera_program_id).unwrap(),
+            tessera_authority: Pubkey::from_str(&tessera_authority).unwrap(),
+            goonfi_program_id: Pubkey::from_str(&goonfi_program_id).unwrap(),
+            obric_program_id: Pubkey::from_str(&obric_program_id).unwrap(),
+            saros_program_id: Pubkey::from_str(&saros_program_id).unwrap(),
             payer_pk,
         })
     }
@@ -46,21 +51,5 @@ impl Config {
     pub fn get_payer(&self) -> Result<Keypair> {
         let payer = Keypair::from_bytes(&bs58::decode(&self.payer_pk).into_vec()?)?;
         Ok(payer)
-    }
-
-    pub fn get_tessera_program_id(&self) -> Pubkey {
-        Pubkey::from_str(&self.tessera_program_id).unwrap()
-    }
-
-    pub fn get_tessera_authority(&self) -> Pubkey {
-        Pubkey::from_str(&self.tessera_authority).unwrap()
-    }
-
-    pub fn get_goonfi_program_id(&self) -> Pubkey {
-        Pubkey::from_str(&self.goonfi_program_id).unwrap()
-    }
-
-    pub fn get_obric_program_id(&self) -> Pubkey {
-        Pubkey::from_str(&self.obric_program_id).unwrap()
     }
 }

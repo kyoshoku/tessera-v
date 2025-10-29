@@ -1,15 +1,13 @@
 use crate::config::Config;
-use crate::constants::{OBRIC_SWAP_SELECTOR, WSOL_MINT};
+use crate::constants::OBRIC_SWAP_SELECTOR;
 use crate::fetch::obric::ObricPool;
 use crate::swap::SwapBuilder;
-use crate::utils::{build_unwrap_sol_instruction, build_wrap_sol_instruction, get_ata};
+use crate::utils::get_ata;
 use anyhow::Result;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
-use spl_associated_token_account::get_associated_token_address_with_program_id;
-use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 
@@ -36,7 +34,7 @@ impl ObricSwapBuilder {
 
 impl SwapBuilder for ObricSwapBuilder {
     fn get_program_id(&self) -> Pubkey {
-        self.config.get_obric_program_id()
+        self.config.obric_program_id
     }
 
     /// Build swap instruction with automatic side detection based on input token
@@ -45,38 +43,12 @@ impl SwapBuilder for ObricSwapBuilder {
         input_mint: &Pubkey,
         amount_in: u64,
         min_amount_out: u64,
-        _wrap_sol: bool,
     ) -> Result<Vec<Instruction>> {
         let mut instructions = vec![];
-
-        let wsol_mint = Pubkey::from_str(WSOL_MINT).unwrap();
-
-        let wsol_ata =
-            get_associated_token_address_with_program_id(&self.user, &wsol_mint, &spl_token::ID);
-        let wrap_sol = self.pool.mint_a.eq(&wsol_mint) || self.pool.mint_b.eq(&wsol_mint);
-
-        if wrap_sol {
-            let wrap_sol_amount = if input_mint.eq(&self.pool.mint_a) {
-                amount_in
-            } else {
-                0
-            };
-            instructions.extend(build_wrap_sol_instruction(
-                &self.user,
-                &wsol_ata,
-                wrap_sol_amount,
-            ));
-        }
-
-        // Build the swap instruction
         instructions.push(
             self.build_swap_instruction(input_mint, amount_in, min_amount_out)
                 .unwrap(),
         );
-
-        if wrap_sol {
-            instructions.extend(build_unwrap_sol_instruction(&self.user, &wsol_ata));
-        }
 
         Ok(instructions)
     }
@@ -122,7 +94,7 @@ impl ObricSwapBuilder {
         ];
 
         Ok(Instruction {
-            program_id: self.config.get_obric_program_id(),
+            program_id: self.get_program_id(),
             accounts,
             data,
         })
