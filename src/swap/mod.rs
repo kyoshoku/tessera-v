@@ -14,6 +14,7 @@ pub trait SwapBuilder {
     fn get_program_id(&self) -> Pubkey;
 }
 
+pub mod alphaq;
 pub mod goonfi;
 pub mod obric;
 pub mod saros_amm;

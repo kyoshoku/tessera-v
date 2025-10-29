@@ -54,7 +54,6 @@ pub fn build_executor_instruction(signer: Pubkey, ix: Instruction) -> Instructio
     // Extend executor ix data
     let mut data = get_anchor_discriminator("global:execute_swap");
     data.extend_from_slice(&ix.data);
-    println!("Executor data len: {}", data.len());
 
     let mut accounts = vec![];
     accounts.push(AccountMeta {

@@ -123,4 +123,16 @@ impl PoolFetcher for ObricPoolFetcher {
             mint_sslp_y,
         }))
     }
+
+    async fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
+        use crate::constants::OBRIC_PROGRAM_ID;
+        
+        // Get all accounts owned by the Obric program
+        let accounts = self.client.get_program_accounts(&OBRIC_PROGRAM_ID)?;
+        
+        // Extract just the pubkeys
+        let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
+        
+        Ok(pubkeys)
+    }
 }

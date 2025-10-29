@@ -1,8 +1,8 @@
+use crate::constants::OBRIC_PROGRAM_ID;
 use crate::constants::OBRIC_SWAP_SELECTOR;
 use crate::fetch::obric::ObricPool;
 use crate::swap::SwapBuilder;
 use crate::utils::get_ata;
-use crate::{config::Config, constants::OBRIC_PROGRAM_ID};
 use anyhow::Result;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -22,13 +22,12 @@ pub struct SwapParams {
 /// Goonfi swap instruction builder
 pub struct ObricSwapBuilder {
     pool: ObricPool,
-    config: Config,
     user: Pubkey,
 }
 
 impl ObricSwapBuilder {
-    pub fn new(pool: ObricPool, user: Pubkey, config: Config) -> Self {
-        Self { pool, user, config }
+    pub fn new(pool: ObricPool, user: Pubkey) -> Self {
+        Self { pool, user }
     }
 }
 

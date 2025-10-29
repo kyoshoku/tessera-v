@@ -32,12 +32,12 @@ use swap::SwapBuilder;
 use crate::{
     constants::WSOL_MINT,
     fetch::{
-        alphaq::AlphaqPoolFetcher,
+        alphaq::{AlphaqPool, AlphaqPoolFetcher},
         goonfi::{GoonfiPool, GoonfiPoolFetcher},
         obric::{ObricPool, ObricPoolFetcher},
         saros_amm::{SarosPool, SarosPoolFetcher},
     },
-    swap::{obric::ObricSwapBuilder, saros_amm::SarosSwapBuilder},
+    swap::{alphaq::AlphaqSwapBuilder, obric::ObricSwapBuilder, saros_amm::SarosSwapBuilder},
     utils::{
         build_unwrap_sol_instruction, build_wrap_sol_instruction, get_ata, get_pubkey_from_str,
     },
@@ -99,6 +99,12 @@ enum Commands {
         #[arg(short, long, default_value = "0")]
         min_amount_out: u64,
     },
+    /// List pool accounts for a protocol
+    List {
+        /// Protocol to list pools for
+        #[arg(short, long, default_value = "tessera")]
+        protocol: String,
+    },
 }
 
 #[tokio::main]
@@ -128,6 +134,7 @@ async fn main() -> Result<()> {
             )
             .await
         }
+        Commands::List { protocol } => handle_list_command(&protocol, &config).await,
         Commands::Swap {
             pool_address,
             input_token,
@@ -266,7 +273,7 @@ async fn handle_swap_command(
                 .downcast_ref::<TesseraPool>()
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
-            let builder = TesseraSwapBuilder::new(pool_data.clone(), user, config.clone());
+            let builder = TesseraSwapBuilder::new(pool_data.clone(), user);
             let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
 
             let output_token = if input_token.eq(&pool_data.mint_a) {
@@ -288,7 +295,7 @@ async fn handle_swap_command(
                 .downcast_ref::<GoonfiPool>()
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
-            let builder = GoonfiSwapBuilder::new(pool_data.clone(), user, config.clone());
+            let builder = GoonfiSwapBuilder::new(pool_data.clone(), user);
             let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
 
             let output_token = if input_token.eq(&pool_data.mint_a) {
@@ -309,7 +316,7 @@ async fn handle_swap_command(
                 .downcast_ref::<ObricPool>()
                 .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
-            let builder = ObricSwapBuilder::new(pool_data.clone(), user, config.clone());
+            let builder = ObricSwapBuilder::new(pool_data.clone(), user);
             let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
 
             let output_token = if input_token.eq(&pool_data.mint_a) {
@@ -340,14 +347,34 @@ async fn handle_swap_command(
             };
             (output_token, swap_ixs)
         }
+        "alphaq" => {
+            let fetcher = AlphaqPoolFetcher::new(client);
+            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
+            pool_data.display();
+
+            // Build swap instruction
+            let pool_data = pool_data
+                .as_any()
+                .downcast_ref::<AlphaqPool>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
+
+            let builder = AlphaqSwapBuilder::new(pool_data.clone(), user);
+            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
+
+            let output_token = if input_token.eq(&pool_data.mint_a) {
+                pool_data.mint_b
+            } else {
+                pool_data.mint_a
+            };
+            (output_token, swap_ixs)
+        }
         _ => {
             anyhow::bail!("Unsupported protocol: {}", protocol);
         }
     };
 
-    if !wrap_sol {
-        let output_ata = get_ata(&user, &output_token, &spl_token::ID);
-
+    let output_ata = get_ata(&user, &output_token, &spl_token::ID);
+    if !output_ata.eq(&wsol_ata) {
         let client = RpcClient::new(config.get_rpc_url());
         let output_ata_exists = client.get_account(&output_ata).is_ok();
         if !output_ata_exists {
@@ -418,6 +445,49 @@ async fn handle_swap_command(
             },
         )?;
         println!("Transaction submitted: {}", signature);
+    }
+
+    Ok(())
+}
+
+async fn handle_list_command(protocol: &str, config: &Config) -> Result<()> {
+    let client = RpcClient::new(config.get_rpc_url());
+
+    let pools = match protocol {
+        "tessera" => {
+            let fetcher = TesseraPoolFetcher::new(client);
+            fetcher.get_pools(config).await?
+        }
+        "alphaq" => {
+            let fetcher = AlphaqPoolFetcher::new(client);
+            fetcher.get_pools(config).await?
+        }
+        "goonfi" => {
+            let fetcher = GoonfiPoolFetcher::new(client);
+            fetcher.get_pools(config).await?
+        }
+        "obric" => {
+            let fetcher = ObricPoolFetcher::new(client);
+            fetcher.get_pools(config).await?
+        }
+        "saros" => {
+            let fetcher = SarosPoolFetcher::new(client);
+            fetcher.get_pools(config).await?
+        }
+        _ => {
+            anyhow::bail!("Unsupported protocol: {}", protocol);
+        }
+    };
+
+    println!("\nFound {} pool accounts:", pools.len());
+    println!("{}", "=".repeat(80));
+
+    for (i, pubkey) in pools.iter().enumerate() {
+        println!("{}. {}", i + 1, pubkey);
+    }
+
+    if pools.is_empty() {
+        anyhow::bail!("No pool accounts found for {} protocol.", protocol);
     }
 
     Ok(())

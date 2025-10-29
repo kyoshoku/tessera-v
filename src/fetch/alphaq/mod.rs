@@ -1,11 +1,16 @@
 use crate::{
     config::Config,
+    constants::ALPHAQ_PROGRAM_ID,
     fetch::{PoolData, PoolFetcher},
-    utils::get_pubkey_from_str,
 };
 use anyhow::Result;
-use solana_client::rpc_client::RpcClient;
-use solana_sdk::pubkey::Pubkey;
+use solana_account_decoder::UiAccountEncoding;
+use solana_client::{
+    rpc_client::RpcClient,
+    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
+    rpc_filter::RpcFilterType,
+};
+use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 
 #[derive(Debug, Clone)]
 pub struct AlphaqPool {
@@ -68,8 +73,8 @@ impl PoolFetcher for AlphaqPoolFetcher {
         let vendor_authority = Pubkey::new_from_array((&data[304..336]).try_into().unwrap());
 
         // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
-        let oracle_price_pico: u64 = u64::from_le_bytes(data[16..24].try_into().unwrap());
-        let oracle_price = oracle_price_pico as f64 / 1e6;
+        let oracle_price_pico: u64 = u64::from_le_bytes(data[424..432].try_into().unwrap());
+        let oracle_price = oracle_price_pico as f64 / 1e10;
 
         // Get the mintA info
         let mint_a_account = self.client.get_account(&mint_a)?;
@@ -91,5 +96,26 @@ impl PoolFetcher for AlphaqPoolFetcher {
             token_program_a,
             token_program_b,
         }))
+    }
+
+    async fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
+        let config = RpcProgramAccountsConfig {
+            filters: Some(vec![RpcFilterType::DataSize(672)]),
+            account_config: RpcAccountInfoConfig {
+                encoding: Some(UiAccountEncoding::Base64),
+                commitment: Some(CommitmentConfig::finalized()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let accounts = self
+            .client
+            .get_program_accounts_with_config(&ALPHAQ_PROGRAM_ID, config)?;
+
+        // Extract just the pubkeys
+        let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
+
+        Ok(pubkeys)
     }
 }

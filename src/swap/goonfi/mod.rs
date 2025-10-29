@@ -24,13 +24,12 @@ pub struct SwapParams {
 /// Goonfi swap instruction builder
 pub struct GoonfiSwapBuilder {
     pool: GoonfiPool,
-    config: Config,
     user: Pubkey,
 }
 
 impl GoonfiSwapBuilder {
-    pub fn new(pool: GoonfiPool, user: Pubkey, config: Config) -> Self {
-        Self { pool, user, config }
+    pub fn new(pool: GoonfiPool, user: Pubkey) -> Self {
+        Self { pool, user }
     }
 }
 

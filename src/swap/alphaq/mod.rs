@@ -1,9 +1,9 @@
-use crate::config::Config;
-use crate::constants::{TESSERA_AUTHORITY, TESSERA_PROGRAM_ID, TESSERA_SWAP_SELECTOR};
-use crate::fetch::tessera::TesseraPool;
+use crate::constants::{ALPHAQ_PROGRAM_ID, ALPHAQ_SWAP_SELECTOR};
+use crate::fetch::alphaq::AlphaqPool;
 use crate::swap::SwapBuilder;
-use crate::utils::{build_executor_instruction, get_ata};
+use crate::utils::get_ata;
 use anyhow::Result;
+use solana_program::pubkey;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
@@ -14,26 +14,26 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// Common swap parameters
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct SwapParams {
-    pub side: u8,            // Protocol-specific side indicator
+    pub a_to_b: u8,          // Protocol-specific side indicator
     pub amount_in: u64,      // Input amount
     pub min_amount_out: u64, // Minimum output amount (slippage protection)
 }
 
-/// Tessera swap instruction builder
-pub struct TesseraSwapBuilder {
-    pool: TesseraPool,
+/// Alphaq swap instruction builder
+pub struct AlphaqSwapBuilder {
+    pool: AlphaqPool,
     user: Pubkey,
 }
 
-impl TesseraSwapBuilder {
-    pub fn new(pool: TesseraPool, user: Pubkey) -> Self {
+impl AlphaqSwapBuilder {
+    pub fn new(pool: AlphaqPool, user: Pubkey) -> Self {
         Self { pool, user }
     }
 }
 
-impl SwapBuilder for TesseraSwapBuilder {
+impl SwapBuilder for AlphaqSwapBuilder {
     fn get_program_id(&self) -> Pubkey {
-        TESSERA_PROGRAM_ID
+        ALPHAQ_PROGRAM_ID
     }
 
     /// Build swap instruction with automatic side detection based on input token
@@ -47,16 +47,17 @@ impl SwapBuilder for TesseraSwapBuilder {
         let swap_ix = self
             .build_swap_instruction(input_mint, amount_in, min_amount_out)
             .unwrap();
-        let executor_ix = build_executor_instruction(self.user, swap_ix);
-        instructions.push(executor_ix);
+        instructions.push(swap_ix);
 
         Ok(instructions)
     }
 }
 
-impl TesseraSwapBuilder {
-    fn get_swap_authority(&self) -> Pubkey {
-        TESSERA_AUTHORITY
+impl AlphaqSwapBuilder {
+    fn get_market_state(&self) -> Pubkey {
+        // let pool = self.pool.pk;
+
+        pubkey!("HZyb7Gv2pWTRYq8XuaeWBePQ8CDNhxigkNohZU2dLPEC")
     }
 
     /// Build the core swap instruction
@@ -66,33 +67,33 @@ impl TesseraSwapBuilder {
         amount_in: u64,
         min_amount_out: u64,
     ) -> Result<Instruction> {
-        let side = input_mint.eq(&self.pool.mint_a) as u8;
+        let a_to_b = input_mint.eq(&self.pool.mint_a) as u8;
         let swap_params = SwapParams {
-            side,
+            a_to_b,
             amount_in,
             min_amount_out,
         };
 
-        // Tessera swap data
+        // Alphaq swap data
         let mut data = Vec::with_capacity(18);
-        data.extend_from_slice(&TESSERA_SWAP_SELECTOR);
+        data.extend_from_slice(&ALPHAQ_SWAP_SELECTOR);
         data.extend_from_slice(&borsh::to_vec(&swap_params)?);
 
         let user_ata_a = get_ata(&self.user, &self.pool.mint_a, &self.pool.token_program_a);
         let user_ata_b = get_ata(&self.user, &self.pool.mint_b, &self.pool.token_program_b);
 
         let accounts = vec![
-            AccountMeta::new_readonly(self.get_swap_authority(), false),
-            AccountMeta::new(self.pool.pk, false),
             AccountMeta::new(self.user, true), // signer
-            AccountMeta::new(self.pool.vault_a, false),
-            AccountMeta::new(self.pool.vault_b, false),
+            AccountMeta::new_readonly(self.pool.pk, false),
+            AccountMeta::new(self.get_market_state(), false),
             AccountMeta::new(user_ata_a, false),
             AccountMeta::new(user_ata_b, false),
-            AccountMeta::new_readonly(self.pool.mint_a, false),
-            AccountMeta::new_readonly(self.pool.mint_b, false),
-            AccountMeta::new_readonly(self.pool.token_program_a, false),
-            AccountMeta::new_readonly(self.pool.token_program_b, false),
+            AccountMeta::new(self.pool.vault_a, false),
+            AccountMeta::new(self.pool.vault_b, false),
+            AccountMeta::new(self.pool.token_a_authority, false),
+            AccountMeta::new(self.pool.token_b_authority, false),
+            AccountMeta::new(self.pool.vendor_authority, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
             AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
         ];
 

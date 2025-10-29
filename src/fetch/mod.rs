@@ -12,6 +12,9 @@ pub trait PoolFetcher {
         pool_address: &Pubkey,
         config: &Config,
     ) -> Result<Box<dyn PoolData>>;
+    
+    /// Get all pool accounts for the protocol
+    async fn get_pools(&self, config: &Config) -> Result<Vec<Pubkey>>;
 }
 
 /// Common interface for pool data across different protocols

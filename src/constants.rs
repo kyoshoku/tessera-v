@@ -22,7 +22,7 @@ pub const OBRIC_SWAP_SELECTOR: [u8; 8] = [65, 75, 63, 76, 235, 91, 91, 136];
 pub const OBRIC_PROGRAM_ID: Pubkey = pubkey!("obriQD1zbpyLz95G5n7nJe6a4DPjpFwa5XYPoNm113y");
 
 /// Alphaq values
-pub const ALPHAQ_SWAP_SELECTOR: [u8; 1] = [0x1];
+pub const ALPHAQ_SWAP_SELECTOR: [u8; 1] = [12];
 pub const ALPHAQ_PROGRAM_ID: Pubkey = pubkey!("ALPHAQmeA7bjrVuccPsYPiCvsi428SNwte66Srvs4pHA");
 
 /// Saros values

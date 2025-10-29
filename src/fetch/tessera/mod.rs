@@ -104,4 +104,16 @@ impl PoolFetcher for TesseraPoolFetcher {
             vault_b,
         }))
     }
+
+    async fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
+        use crate::constants::TESSERA_PROGRAM_ID;
+        
+        // Get all accounts owned by the Tessera program
+        let accounts = self.client.get_program_accounts(&TESSERA_PROGRAM_ID)?;
+        
+        // Extract just the pubkeys
+        let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
+        
+        Ok(pubkeys)
+    }
 }
