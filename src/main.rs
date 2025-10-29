@@ -16,32 +16,22 @@ use spl_associated_token_account::{
 };
 use std::str::FromStr;
 
+mod adapter;
 mod config;
 mod constants;
-mod fetch;
-mod swap;
 mod utils;
-
-use config::Config;
-use fetch::tessera::{TesseraPool, TesseraPoolFetcher};
-use fetch::PoolFetcher;
-use swap::goonfi::GoonfiSwapBuilder;
-use swap::tessera::TesseraSwapBuilder;
-use swap::SwapBuilder;
 
 use crate::{
     constants::WSOL_MINT,
-    fetch::{
-        alphaq::{AlphaqPool, AlphaqPoolFetcher},
-        goonfi::{GoonfiPool, GoonfiPoolFetcher},
-        obric::{ObricPool, ObricPoolFetcher},
-        saros_amm::{SarosPool, SarosPoolFetcher},
-    },
-    swap::{alphaq::AlphaqSwapBuilder, obric::ObricSwapBuilder, saros_amm::SarosSwapBuilder},
     utils::{
         build_unwrap_sol_instruction, build_wrap_sol_instruction, get_ata, get_pubkey_from_str,
     },
 };
+use adapter::{
+    alphaq::AlphaqAdapter, goonfi::GoonfiAdapter, obric::ObricAdapter, saros_amm::SarosAdapter,
+    tessera::TesseraAdapter, DexAdapter,
+};
+use config::Config;
 
 #[derive(Parser)]
 #[command(name = "dex-tools")]
@@ -155,68 +145,33 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn handle_read_command(protocol: &str, pool_address: String, config: &Config) -> Result<()> {
-    let pool_address = Pubkey::from_str(&pool_address)?;
+fn get_adapter(protocol: &str, config: &Config) -> Result<Box<dyn DexAdapter>> {
     let client = RpcClient::new(config.get_rpc_url());
 
-    match protocol {
-        "alphaq" => {
-            let fetcher = AlphaqPoolFetcher::new(client);
-            match fetcher.fetch_pool_data(&pool_address, config).await {
-                Ok(data) => {
-                    data.display();
-                }
-                Err(e) => {
-                    println!("Error: {}", e);
-                }
-            }
-        }
-        "tessera" => {
-            let fetcher = TesseraPoolFetcher::new(client);
-            match fetcher.fetch_pool_data(&pool_address, config).await {
-                Ok(data) => {
-                    data.display();
-                }
-                Err(e) => {
-                    println!("Error: {}", e);
-                }
-            }
-        }
-        "goonfi" => {
-            let fetcher = GoonfiPoolFetcher::new(client);
-            match fetcher.fetch_pool_data(&pool_address, config).await {
-                Ok(data) => {
-                    data.display();
-                }
-                Err(e) => {
-                    println!("Error: {}", e);
-                }
-            }
-        }
-        "obric" => {
-            let fetcher = ObricPoolFetcher::new(client);
-            match fetcher.fetch_pool_data(&pool_address, config).await {
-                Ok(data) => {
-                    data.display();
-                }
-                Err(e) => {
-                    println!("Error: {}", e);
-                }
-            }
-        }
-        "saros" => {
-            let fetcher = SarosPoolFetcher::new(client);
-            match fetcher.fetch_pool_data(&pool_address, config).await {
-                Ok(data) => {
-                    data.display();
-                }
-                Err(e) => {
-                    println!("Error: {}", e);
-                }
-            }
-        }
+    let adapter: Box<dyn DexAdapter> = match protocol {
+        "alphaq" => Box::new(AlphaqAdapter::new(client)),
+        "tessera" => Box::new(TesseraAdapter::new(client)),
+        "goonfi" => Box::new(GoonfiAdapter::new(client)),
+        "obric" => Box::new(ObricAdapter::new(client)),
+        "saros" => Box::new(SarosAdapter::new(client)),
         _ => {
-            println!("Unsupported protocol: {}", protocol);
+            anyhow::bail!("Unsupported protocol: {}", protocol);
+        }
+    };
+
+    Ok(adapter)
+}
+
+async fn handle_read_command(protocol: &str, pool_address: String, config: &Config) -> Result<()> {
+    let pool_address = Pubkey::from_str(&pool_address)?;
+
+    let adapter = get_adapter(protocol, config)?;
+    match adapter.fetch_pool_data(&pool_address, config) {
+        Ok(data) => {
+            data.display();
+        }
+        Err(e) => {
+            println!("Error: {}", e);
         }
     }
 
@@ -260,117 +215,26 @@ async fn handle_swap_command(
         ));
     }
 
-    let (output_token, swap_ixs) = match protocol {
-        "tessera" => {
-            // First, read pool data to get the mints and current state
-            let fetcher = TesseraPoolFetcher::new(client);
-            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
-            pool_data.display();
+    let adapter = get_adapter(protocol, config)?;
 
-            // Build swap instruction
-            let pool_data = pool_data
-                .as_any()
-                .downcast_ref::<TesseraPool>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
+    // First, read pool data to get the mints and current state
+    let pool_data = adapter.fetch_pool_data(&pool_address, config)?;
+    pool_data.display();
 
-            let builder = TesseraSwapBuilder::new(pool_data.clone(), user);
-            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
+    // Build swap instructions
+    let swap_ixs = adapter.build_swap_instructions(
+        pool_data.as_ref(),
+        &user,
+        &input_token,
+        amount_in,
+        min_amount_out,
+    )?;
 
-            let output_token = if input_token.eq(&pool_data.mint_a) {
-                pool_data.mint_b
-            } else {
-                pool_data.mint_a
-            };
-            (output_token, swap_ixs)
-        }
-        "goonfi" => {
-            // First, read pool data to get the mints and current state
-            let fetcher = GoonfiPoolFetcher::new(client);
-            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
-            pool_data.display();
-
-            // Build swap instruction
-            let pool_data = pool_data
-                .as_any()
-                .downcast_ref::<GoonfiPool>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
-
-            let builder = GoonfiSwapBuilder::new(pool_data.clone(), user);
-            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
-
-            let output_token = if input_token.eq(&pool_data.mint_a) {
-                pool_data.mint_b
-            } else {
-                pool_data.mint_a
-            };
-            (output_token, swap_ixs)
-        }
-        "obric" => {
-            let fetcher = ObricPoolFetcher::new(client);
-            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
-            pool_data.display();
-
-            // Build swap instruction
-            let pool_data = pool_data
-                .as_any()
-                .downcast_ref::<ObricPool>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
-
-            let builder = ObricSwapBuilder::new(pool_data.clone(), user);
-            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
-
-            let output_token = if input_token.eq(&pool_data.mint_a) {
-                pool_data.mint_b
-            } else {
-                pool_data.mint_a
-            };
-            (output_token, swap_ixs)
-        }
-        "saros" => {
-            let fetcher = SarosPoolFetcher::new(client);
-            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
-            pool_data.display();
-
-            // Build swap instruction
-            let pool_data = pool_data
-                .as_any()
-                .downcast_ref::<SarosPool>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
-
-            let builder = SarosSwapBuilder::new(pool_data.clone(), user, config.clone());
-            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
-
-            let output_token = if input_token.eq(&pool_data.mint_a) {
-                pool_data.mint_b
-            } else {
-                pool_data.mint_a
-            };
-            (output_token, swap_ixs)
-        }
-        "alphaq" => {
-            let fetcher = AlphaqPoolFetcher::new(client);
-            let pool_data = fetcher.fetch_pool_data(&pool_address, config).await?;
-            pool_data.display();
-
-            // Build swap instruction
-            let pool_data = pool_data
-                .as_any()
-                .downcast_ref::<AlphaqPool>()
-                .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
-
-            let builder = AlphaqSwapBuilder::new(pool_data.clone(), user);
-            let swap_ixs = builder.build_swap(&input_token, amount_in, min_amount_out)?;
-
-            let output_token = if input_token.eq(&pool_data.mint_a) {
-                pool_data.mint_b
-            } else {
-                pool_data.mint_a
-            };
-            (output_token, swap_ixs)
-        }
-        _ => {
-            anyhow::bail!("Unsupported protocol: {}", protocol);
-        }
+    // Determine output token
+    let output_token = if input_token.eq(&pool_data.get_mint_a()) {
+        pool_data.get_mint_b()
+    } else {
+        pool_data.get_mint_a()
     };
 
     let output_ata = get_ata(&user, &output_token, &spl_token::ID);
@@ -453,31 +317,8 @@ async fn handle_swap_command(
 async fn handle_list_command(protocol: &str, config: &Config) -> Result<()> {
     let client = RpcClient::new(config.get_rpc_url());
 
-    let pools = match protocol {
-        "tessera" => {
-            let fetcher = TesseraPoolFetcher::new(client);
-            fetcher.get_pools(config).await?
-        }
-        "alphaq" => {
-            let fetcher = AlphaqPoolFetcher::new(client);
-            fetcher.get_pools(config).await?
-        }
-        "goonfi" => {
-            let fetcher = GoonfiPoolFetcher::new(client);
-            fetcher.get_pools(config).await?
-        }
-        "obric" => {
-            let fetcher = ObricPoolFetcher::new(client);
-            fetcher.get_pools(config).await?
-        }
-        "saros" => {
-            let fetcher = SarosPoolFetcher::new(client);
-            fetcher.get_pools(config).await?
-        }
-        _ => {
-            anyhow::bail!("Unsupported protocol: {}", protocol);
-        }
-    };
+    let adapter = get_adapter(protocol, config)?;
+    let pools = adapter.get_pools(config)?;
 
     println!("\nFound {} pool accounts:", pools.len());
     println!("{}", "=".repeat(80));

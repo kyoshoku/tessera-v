@@ -53,21 +53,7 @@ cargo run -- list --protocol tessera
 cargo run -- list --protocol goonfi
 cargo run -- list --protocol obric
 cargo run -- list --protocol saros
-
 cargo run -- list --protocol alphaq
-1. Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
-2. hKH9LFREBm3TxTx5Ex6D1nHTKEA8ii3CWfhEkB9s21u
-3. 2o4369ha3bENAhJDan8mdRNJjNo6qQ9P5KhUS4QZUVgi
-4. 349dWxnnkMFZoJDiiZmkV5RqrJZZKHYeeFUbTtKPMwJa
-5. 5jsvKL6eKPGUAMBYcoNn9FaKwD1i9o44YeNtEEedkmeq
-6. 61LMyNZudQFDNMRFKwkBmf5HtRf1vU8B8FgNYdrha3fq
-7. 6R3LknvRLwPg7c8Cww7LKqBHRDcGioPoj29uURX9anug
-8. 9dCzXdYHxdMP5SpfasGfWvWDYFCKSK97KiPCQWghmVJy
-9. 9kEQxBP7PmdxY5TW7ifD2wRUPUeZLB23TkP1CjK4P7GP
-10. 9xPhpwq6GLUkrDBNfXCbnSP9ARAMMyUQqgkrqaDW6NLV
-11. C2GdMFGp2vSZHnU76pH2ukEWxuhoJBuaA54Ftzcvv4z5
-12. F97Kntcg8pZrCDa9csKHPNuAtGrtzqG3RBr6UdJCz8NP
-13. FVz9gveEdRw2fqkZFLCXxpZErS4mBQvwKwQeForLUyW6
 
 ```
 

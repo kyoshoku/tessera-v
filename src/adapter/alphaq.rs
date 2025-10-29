@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
-    constants::ALPHAQ_PROGRAM_ID,
-    fetch::{PoolData, PoolFetcher},
+    constants::{ALPHAQ_PROGRAM_ID, ALPHAQ_SWAP_SELECTOR},
+    utils::get_ata,
 };
 use anyhow::Result;
 use solana_account_decoder::UiAccountEncoding;
@@ -10,7 +10,25 @@ use solana_client::{
     rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
     rpc_filter::RpcFilterType,
 };
-use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
+use solana_program::pubkey;
+use solana_sdk::{
+    commitment_config::CommitmentConfig,
+    instruction::{AccountMeta, Instruction},
+    pubkey::Pubkey,
+};
+use std::any::Any;
+
+use super::{DexAdapter, PoolData};
+
+use borsh::{BorshDeserialize, BorshSerialize};
+
+/// Common swap parameters
+#[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct SwapParams {
+    pub a_to_b: u8,          // Protocol-specific side indicator
+    pub amount_in: u64,      // Input amount
+    pub min_amount_out: u64, // Minimum output amount (slippage protection)
+}
 
 #[derive(Debug, Clone)]
 pub struct AlphaqPool {
@@ -37,23 +55,31 @@ impl PoolData for AlphaqPool {
         println!("Oracle Price: ${:.4}", self.oracle_price);
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn get_mint_a(&self) -> Pubkey {
+        self.mint_a
+    }
+
+    fn get_mint_b(&self) -> Pubkey {
+        self.mint_b
     }
 }
 
-pub struct AlphaqPoolFetcher {
+pub struct AlphaqAdapter {
     client: RpcClient,
 }
 
-impl AlphaqPoolFetcher {
+impl AlphaqAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
 }
 
-impl PoolFetcher for AlphaqPoolFetcher {
-    async fn fetch_pool_data(
+impl DexAdapter for AlphaqAdapter {
+    fn fetch_pool_data(
         &self,
         pool_address: &Pubkey,
         _config: &Config,
@@ -98,7 +124,7 @@ impl PoolFetcher for AlphaqPoolFetcher {
         }))
     }
 
-    async fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
+    fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
         let config = RpcProgramAccountsConfig {
             filters: Some(vec![RpcFilterType::DataSize(672)]),
             account_config: RpcAccountInfoConfig {
@@ -117,5 +143,57 @@ impl PoolFetcher for AlphaqPoolFetcher {
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
 
         Ok(pubkeys)
+    }
+
+    fn build_swap_instructions(
+        &self,
+        pool_data: &dyn PoolData,
+        user: &Pubkey,
+        input_token: &Pubkey,
+        amount_in: u64,
+        min_amount_out: u64,
+    ) -> Result<Vec<Instruction>> {
+        let pool = pool_data
+            .as_any()
+            .downcast_ref::<AlphaqPool>()
+            .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
+
+        let a_to_b = input_token.eq(&pool.mint_a) as u8;
+        let swap_params = SwapParams {
+            a_to_b,
+            amount_in,
+            min_amount_out,
+        };
+
+        // Alphaq swap data
+        let mut data = Vec::with_capacity(18);
+        data.extend_from_slice(&ALPHAQ_SWAP_SELECTOR);
+        data.extend_from_slice(&borsh::to_vec(&swap_params)?);
+
+        let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
+        let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
+
+        let market_state = pubkey!("HZyb7Gv2pWTRYq8XuaeWBePQ8CDNhxigkNohZU2dLPEC");
+
+        let accounts = vec![
+            AccountMeta::new(*user, true), // signer
+            AccountMeta::new_readonly(pool.pk, false),
+            AccountMeta::new(market_state, false),
+            AccountMeta::new(user_ata_a, false),
+            AccountMeta::new(user_ata_b, false),
+            AccountMeta::new(pool.vault_a, false),
+            AccountMeta::new(pool.vault_b, false),
+            AccountMeta::new(pool.token_a_authority, false),
+            AccountMeta::new(pool.token_b_authority, false),
+            AccountMeta::new(pool.vendor_authority, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
+        ];
+
+        Ok(vec![Instruction {
+            program_id: ALPHAQ_PROGRAM_ID,
+            accounts,
+            data,
+        }])
     }
 }

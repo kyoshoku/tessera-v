@@ -1,12 +1,29 @@
 use crate::{
     config::Config,
-    fetch::{PoolData, PoolFetcher},
+    constants::{OBRIC_PROGRAM_ID, OBRIC_SWAP_SELECTOR},
+    utils::get_ata,
 };
 use anyhow::Result;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::{program_pack::Pack, pubkey::Pubkey};
+use solana_sdk::{
+    instruction::{AccountMeta, Instruction},
+    program_pack::Pack,
+    pubkey::Pubkey,
+};
 use spl_token::state::Mint;
+use std::any::Any;
 
+use super::{DexAdapter, PoolData};
+
+use borsh::{BorshDeserialize, BorshSerialize};
+
+/// Common swap parameters
+#[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct SwapParams {
+    pub x_to_y: bool,
+    pub amount_in: u64,
+    pub min_amount_out: u64,
+}
 
 #[derive(Debug, Clone)]
 pub struct ObricPool {
@@ -34,23 +51,31 @@ impl PoolData for ObricPool {
         println!("Oracle Price: ${:.4}", self.oracle_price);
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn get_mint_a(&self) -> Pubkey {
+        self.mint_a
+    }
+
+    fn get_mint_b(&self) -> Pubkey {
+        self.mint_b
     }
 }
 
-pub struct ObricPoolFetcher {
+pub struct ObricAdapter {
     client: RpcClient,
 }
 
-impl ObricPoolFetcher {
+impl ObricAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
 }
 
-impl PoolFetcher for ObricPoolFetcher {
-    async fn fetch_pool_data(
+impl DexAdapter for ObricAdapter {
+    fn fetch_pool_data(
         &self,
         pool_address: &Pubkey,
         _config: &Config,
@@ -124,9 +149,7 @@ impl PoolFetcher for ObricPoolFetcher {
         }))
     }
 
-    async fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        use crate::constants::OBRIC_PROGRAM_ID;
-        
+    fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
         // Get all accounts owned by the Obric program
         let accounts = self.client.get_program_accounts(&OBRIC_PROGRAM_ID)?;
         
@@ -134,5 +157,55 @@ impl PoolFetcher for ObricPoolFetcher {
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
         
         Ok(pubkeys)
+    }
+
+    fn build_swap_instructions(
+        &self,
+        pool_data: &dyn PoolData,
+        user: &Pubkey,
+        input_token: &Pubkey,
+        amount_in: u64,
+        min_amount_out: u64,
+    ) -> Result<Vec<Instruction>> {
+        let pool = pool_data
+            .as_any()
+            .downcast_ref::<ObricPool>()
+            .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
+
+        let x_to_y = input_token.eq(&pool.mint_a) as bool;
+        let swap_params = SwapParams {
+            x_to_y,
+            amount_in,
+            min_amount_out,
+        };
+
+        // Obric swap data
+        let mut data = Vec::with_capacity(25);
+        data.extend_from_slice(&OBRIC_SWAP_SELECTOR);
+        data.extend_from_slice(&borsh::to_vec(&swap_params)?);
+
+        let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
+        let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
+
+        let accounts = vec![
+            AccountMeta::new(pool.pk, false),
+            AccountMeta::new_readonly(pool.protocol_fee_y, false),
+            AccountMeta::new_readonly(pool.mint_sslp_x, false),
+            AccountMeta::new(pool.vault_a, false),
+            AccountMeta::new(pool.vault_b, false),
+            AccountMeta::new(user_ata_a, false),
+            AccountMeta::new(user_ata_b, false),
+            AccountMeta::new_readonly(pool.protocol_fee_x, false),
+            AccountMeta::new_readonly(pool.price_feed_x, false),
+            AccountMeta::new_readonly(pool.price_feed_y, false),
+            AccountMeta::new(*user, true), // signer
+            AccountMeta::new_readonly(spl_token::ID, false),
+        ];
+
+        Ok(vec![Instruction {
+            program_id: OBRIC_PROGRAM_ID,
+            accounts,
+            data,
+        }])
     }
 }

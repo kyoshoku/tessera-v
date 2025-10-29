@@ -1,12 +1,26 @@
 use crate::{
     config::Config,
-    fetch::{PoolData, PoolFetcher},
-    utils::get_pubkey_from_str,
+    constants::{SAROS_PROGRAM_ID, SAROS_SWAP_SELECTOR},
+    utils::{get_ata, get_pubkey_from_str},
 };
 use anyhow::Result;
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::{
+    instruction::{AccountMeta, Instruction},
+    pubkey::Pubkey,
+};
+use std::any::Any;
 
+use super::{DexAdapter, PoolData};
+
+use borsh::{BorshDeserialize, BorshSerialize};
+
+/// Common swap parameters
+#[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
+pub struct SwapParams {
+    pub amount_in: u64,      // Input amount
+    pub min_amount_out: u64, // Minimum output amount (slippage protection)
+}
 
 #[derive(Debug, Clone)]
 pub struct SarosPool {
@@ -34,16 +48,24 @@ impl PoolData for SarosPool {
         println!("Oracle Price: ${:.4}", self.oracle_price);
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn get_mint_a(&self) -> Pubkey {
+        self.mint_a
+    }
+
+    fn get_mint_b(&self) -> Pubkey {
+        self.mint_b
     }
 }
 
-pub struct SarosPoolFetcher {
+pub struct SarosAdapter {
     client: RpcClient,
 }
 
-impl SarosPoolFetcher {
+impl SarosAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
@@ -64,8 +86,8 @@ fn get_swap_authority(pool: String) -> Pubkey {
     }
 }
 
-impl PoolFetcher for SarosPoolFetcher {
-    async fn fetch_pool_data(
+impl DexAdapter for SarosAdapter {
+    fn fetch_pool_data(
         &self,
         pool_address: &Pubkey,
         _config: &Config,
@@ -112,9 +134,7 @@ impl PoolFetcher for SarosPoolFetcher {
         }))
     }
 
-    async fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        use crate::constants::SAROS_PROGRAM_ID;
-        
+    fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
         // Get all accounts owned by the Saros program
         let accounts = self.client.get_program_accounts(&SAROS_PROGRAM_ID)?;
         
@@ -122,5 +142,65 @@ impl PoolFetcher for SarosPoolFetcher {
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
         
         Ok(pubkeys)
+    }
+
+    fn build_swap_instructions(
+        &self,
+        pool_data: &dyn PoolData,
+        user: &Pubkey,
+        input_token: &Pubkey,
+        amount_in: u64,
+        min_amount_out: u64,
+    ) -> Result<Vec<Instruction>> {
+        let pool = pool_data
+            .as_any()
+            .downcast_ref::<SarosPool>()
+            .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
+
+        let swap_params = SwapParams {
+            amount_in,
+            min_amount_out,
+        };
+
+        // Saros swap data
+        let mut data = Vec::with_capacity(17);
+        data.extend_from_slice(&SAROS_SWAP_SELECTOR);
+        data.extend_from_slice(&borsh::to_vec(&swap_params)?);
+
+        let is_a_to_b = input_token.eq(&pool.mint_a);
+
+        let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
+        let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
+
+        let (user_source, user_destination) = if is_a_to_b {
+            (user_ata_a, user_ata_b)
+        } else {
+            (user_ata_b, user_ata_a)
+        };
+
+        let (vault_source, vault_destination) = if is_a_to_b {
+            (pool.vault_a, pool.vault_b)
+        } else {
+            (pool.vault_b, pool.vault_a)
+        };
+
+        let accounts = vec![
+            AccountMeta::new_readonly(pool.pk, false),
+            AccountMeta::new_readonly(pool.swap_authority, false),
+            AccountMeta::new(*user, true), // signer
+            AccountMeta::new(user_source, false),
+            AccountMeta::new(vault_source, false),
+            AccountMeta::new(vault_destination, false),
+            AccountMeta::new(user_destination, false),
+            AccountMeta::new(pool.pool_mint, false),
+            AccountMeta::new(pool.pool_fee, false),
+            AccountMeta::new_readonly(pool.token_program, false),
+        ];
+
+        Ok(vec![Instruction {
+            program_id: SAROS_PROGRAM_ID,
+            accounts,
+            data,
+        }])
     }
 }
