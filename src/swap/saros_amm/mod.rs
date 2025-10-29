@@ -1,8 +1,8 @@
-use crate::config::Config;
 use crate::constants::SAROS_SWAP_SELECTOR;
 use crate::fetch::saros_amm::SarosPool;
 use crate::swap::SwapBuilder;
 use crate::utils::get_ata;
+use crate::{config::Config, constants::SAROS_PROGRAM_ID};
 use anyhow::Result;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -33,7 +33,7 @@ impl SarosSwapBuilder {
 
 impl SwapBuilder for SarosSwapBuilder {
     fn get_program_id(&self) -> Pubkey {
-        self.config.saros_program_id
+        SAROS_PROGRAM_ID
     }
 
     /// Build swap instruction with automatic side detection based on input token

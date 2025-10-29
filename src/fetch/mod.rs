@@ -27,3 +27,4 @@ pub mod goonfi;
 pub mod obric;
 pub mod saros_amm;
 pub mod tessera;
+pub mod alphaq;

@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::constants::TESSERA_SWAP_SELECTOR;
+use crate::constants::{TESSERA_AUTHORITY, TESSERA_PROGRAM_ID, TESSERA_SWAP_SELECTOR};
 use crate::fetch::tessera::TesseraPool;
 use crate::swap::SwapBuilder;
 use crate::utils::{build_executor_instruction, get_ata};
@@ -34,7 +34,7 @@ impl TesseraSwapBuilder {
 
 impl SwapBuilder for TesseraSwapBuilder {
     fn get_program_id(&self) -> Pubkey {
-        self.config.tessera_program_id
+        TESSERA_PROGRAM_ID
     }
 
     /// Build swap instruction with automatic side detection based on input token
@@ -56,6 +56,10 @@ impl SwapBuilder for TesseraSwapBuilder {
 }
 
 impl TesseraSwapBuilder {
+    fn get_swap_authority(&self) -> Pubkey {
+        TESSERA_AUTHORITY
+    }
+
     /// Build the core swap instruction
     fn build_swap_instruction(
         &self,
@@ -79,7 +83,7 @@ impl TesseraSwapBuilder {
         let user_ata_b = get_ata(&self.user, &self.pool.mint_b, &self.pool.token_program_b);
 
         let accounts = vec![
-            AccountMeta::new_readonly(self.config.tessera_authority, false),
+            AccountMeta::new_readonly(self.get_swap_authority(), false),
             AccountMeta::new(self.pool.pk, false),
             AccountMeta::new(self.user, true), // signer
             AccountMeta::new(self.pool.vault_a, false),

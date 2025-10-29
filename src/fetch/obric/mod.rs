@@ -7,7 +7,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_sdk::{program_pack::Pack, pubkey::Pubkey};
 use spl_token::state::Mint;
 
-/// Tessera pool account data
+
 #[derive(Debug, Clone)]
 pub struct ObricPool {
     pub pk: Pubkey,

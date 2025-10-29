@@ -7,7 +7,7 @@ use anyhow::Result;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 
-/// Tessera pool account data
+
 #[derive(Debug, Clone)]
 pub struct TesseraPool {
     pub pk: Pubkey,

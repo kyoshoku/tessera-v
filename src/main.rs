@@ -32,6 +32,7 @@ use swap::SwapBuilder;
 use crate::{
     constants::WSOL_MINT,
     fetch::{
+        alphaq::AlphaqPoolFetcher,
         goonfi::{GoonfiPool, GoonfiPoolFetcher},
         obric::{ObricPool, ObricPoolFetcher},
         saros_amm::{SarosPool, SarosPoolFetcher},
@@ -152,6 +153,17 @@ async fn handle_read_command(protocol: &str, pool_address: String, config: &Conf
     let client = RpcClient::new(config.get_rpc_url());
 
     match protocol {
+        "alphaq" => {
+            let fetcher = AlphaqPoolFetcher::new(client);
+            match fetcher.fetch_pool_data(&pool_address, config).await {
+                Ok(data) => {
+                    data.display();
+                }
+                Err(e) => {
+                    println!("Error: {}", e);
+                }
+            }
+        }
         "tessera" => {
             let fetcher = TesseraPoolFetcher::new(client);
             match fetcher.fetch_pool_data(&pool_address, config).await {

@@ -1,8 +1,8 @@
-use crate::config::Config;
 use crate::constants::OBRIC_SWAP_SELECTOR;
 use crate::fetch::obric::ObricPool;
 use crate::swap::SwapBuilder;
 use crate::utils::get_ata;
+use crate::{config::Config, constants::OBRIC_PROGRAM_ID};
 use anyhow::Result;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -34,7 +34,7 @@ impl ObricSwapBuilder {
 
 impl SwapBuilder for ObricSwapBuilder {
     fn get_program_id(&self) -> Pubkey {
-        self.config.obric_program_id
+        OBRIC_PROGRAM_ID
     }
 
     /// Build swap instruction with automatic side detection based on input token

@@ -32,6 +32,8 @@ cargo run -- --protocol tessera read -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4p
 cargo run -- --protocol goonfi read -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46
 cargo run -- --protocol obric read -p 3csCx7o3KCvpXeRZYjhCGrgXdKyjSgaqcirc5pZJUJCf
 cargo run -- --protocol saros read -p 7EFmig3Jb9j1kJ7ppaUs5iY8P5pBnRdQXUR4q9vSCY37
+cargo run -- --protocol alphaq read -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
+9xPhpwq6GLUkrDBNfXCbnSP9ARAMMyUQqgkrqaDW6NLV
 
 # Build and submit swap transaction
 cargo run -- swap -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000

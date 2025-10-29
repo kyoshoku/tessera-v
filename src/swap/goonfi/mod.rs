@@ -1,8 +1,8 @@
-use crate::config::Config;
 use crate::constants::GOONFI_SWAP_SELECTOR;
 use crate::fetch::goonfi::GoonfiPool;
 use crate::swap::SwapBuilder;
 use crate::utils::get_ata;
+use crate::{config::Config, constants::GOONFI_PROGRAM_ID};
 use anyhow::Result;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -36,7 +36,7 @@ impl GoonfiSwapBuilder {
 
 impl SwapBuilder for GoonfiSwapBuilder {
     fn get_program_id(&self) -> Pubkey {
-        self.config.goonfi_program_id
+        GOONFI_PROGRAM_ID
     }
 
     /// Build swap instruction with automatic side detection based on input token
