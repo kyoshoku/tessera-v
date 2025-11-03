@@ -1,6 +1,8 @@
 use crate::{
     config::Config,
-    constants::{AQUIFER_PROGRAM_ID, AQUIFER_SWAP_SELECTOR},
+    constants::{
+        AQUIFER_POOL_AUTHORITY, AQUIFER_POOL_STATE, AQUIFER_PROGRAM_ID, AQUIFER_SWAP_SELECTOR,
+    },
     utils::get_ata,
 };
 use anyhow::Result;
@@ -269,9 +271,6 @@ impl DexAdapter for AquiferAdapter {
         let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
         let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
 
-        let pool_authority = pubkey!("5AVyF6qJBi8GxVjh6nh4Ew1DiJZugPxz9m58a8v2osk2");
-        let pool_state = pubkey!("CNC5TaeNQEoSPfQKZ7GgfM4R8WYAJRKRSHFCHkf2H7ko");
-
         let accounts = vec![
             AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
             AccountMeta::new(*user, true), // signer
@@ -281,8 +280,8 @@ impl DexAdapter for AquiferAdapter {
             AccountMeta::new_readonly(pool.token_program_a, false),
             AccountMeta::new(user_ata_a, false),
             AccountMeta::new_readonly(pool.mint_a, false),
-            AccountMeta::new_readonly(pool_authority, false),
-            AccountMeta::new(pool_state, false),
+            AccountMeta::new_readonly(AQUIFER_POOL_AUTHORITY, false),
+            AccountMeta::new(AQUIFER_POOL_STATE, false),
             AccountMeta::new_readonly(pool.oracle_b, false),
             AccountMeta::new_readonly(pool.oracle_a, false),
             AccountMeta::new(pool.vault_b, false),

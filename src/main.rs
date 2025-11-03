@@ -15,6 +15,7 @@ use tokio::task::JoinSet;
 mod adapter;
 mod config;
 mod constants;
+mod hera;
 mod svm;
 mod swap;
 mod utils;

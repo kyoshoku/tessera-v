@@ -38,5 +38,7 @@ pub const HUMIDIFI_PROGRAM_ID: Pubkey = pubkey!("9H6tua7jkLhdm3w8BvgpTn5LZNU7g4Z
 /// Aquifer values
 pub const AQUIFER_SWAP_SELECTOR: [u8; 1] = [0x1];
 pub const AQUIFER_PROGRAM_ID: Pubkey = pubkey!("AQU1FRd7papthgdrwPTTq5JacJh8YtwEXaBfKU3bTz45");
+pub const AQUIFER_POOL_STATE: Pubkey = pubkey!("CNC5TaeNQEoSPfQKZ7GgfM4R8WYAJRKRSHFCHkf2H7ko");
+pub const AQUIFER_POOL_AUTHORITY: Pubkey = pubkey!("5AVyF6qJBi8GxVjh6nh4Ew1DiJZugPxz9m58a8v2osk2");
 
 pub const WSOL_MINT: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
