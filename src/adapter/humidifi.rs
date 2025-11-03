@@ -1,8 +1,8 @@
 use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
 use crate::{
     config::Config,
-    constants::{TESSERA_AUTHORITY, TESSERA_PROGRAM_ID, TESSERA_SWAP_SELECTOR},
-    utils::{build_executor_instruction, get_ata, get_pubkey_from_str},
+    constants::{HUMIDIFI_PROGRAM_ID, HUMIDIFI_SWAP_SELECTOR},
+    utils::get_ata,
 };
 use anyhow::Result;
 use litesvm::LiteSVM;
@@ -12,13 +12,13 @@ use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
 use solana_client::rpc_filter::RpcFilterType;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::program_pack::Pack;
-use solana_sdk::pubkey;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
+
 use spl_token::state::Mint;
-use std::any::Any;
+use std::{any::Any, str::FromStr};
 
 use super::{DexAdapter, PoolData};
 
@@ -27,13 +27,14 @@ use borsh::{BorshDeserialize, BorshSerialize};
 /// Common swap parameters
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct SwapParams {
-    pub side: u8,            // Protocol-specific side indicator
-    pub amount_in: u64,      // Input amount
-    pub min_amount_out: u64, // Minimum output amount (slippage protection)
+    pub swap_id: u64,
+    pub amount_in: u64,
+    pub is_base_to_quote: u8,
+    pub padding: [u8; 7],
 }
 
 #[derive(Debug, Clone)]
-pub struct TesseraPool {
+pub struct HumidifiPool {
     pub pk: Pubkey,
     pub mint_a: Pubkey,
     pub mint_b: Pubkey,
@@ -46,10 +47,12 @@ pub struct TesseraPool {
     pub decimals_b: u8,
 }
 
-impl PoolData for TesseraPool {
+impl PoolData for HumidifiPool {
     fn display(&self) {
         println!("Mint A: {}", self.mint_a);
         println!("Mint B: {}", self.mint_b);
+        println!("Vault A: {}", self.vault_a);
+        println!("Vault B: {}", self.vault_b);
         println!("Oracle Price: ${:.4}", self.oracle_price);
     }
 
@@ -86,27 +89,37 @@ impl PoolData for TesseraPool {
     }
 }
 
-pub struct TesseraAdapter {
+pub struct HumidifiAdapter {
     client: RpcClient,
 }
 
-impl TesseraAdapter {
+impl HumidifiAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
 }
 
-fn parse_tessera_pool(
+fn parse_humidifi_pool(
     pool_address: &Pubkey,
     get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
 ) -> Result<Box<dyn PoolData>> {
     let account = get_account(pool_address)?;
     let data = &account.data;
 
-    let mint_a = Pubkey::new_from_array((&data[24..56]).try_into().unwrap());
-    let mint_b = Pubkey::new_from_array((&data[56..88]).try_into().unwrap());
+    let mint_a = Pubkey::from_str("So11111111111111111111111111111111111111112").unwrap();
+    let mint_b = Pubkey::from_str("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB").unwrap();
+    let vault_a = Pubkey::from_str("AzzKL5BpnX9UXfJRyiGbAwyFvw93vwCTBvW56tJebsqd").unwrap();
+    let vault_b = Pubkey::from_str("EmyNiSYtMYZsBCVYpzLwNduQFqCpDGR8qM1h2CoLpWnM").unwrap();
 
-    // Get the mintA/B info
+    // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
+    // for i in 0..800 {
+    //     println!("{} - {}", i, u64::from_le_bytes(data[i..i + 8].try_into().unwrap()));
+    // }
+
+    let oracle_price_pico: u64 = u64::from_le_bytes(data[324..332].try_into().unwrap());
+    let oracle_price = oracle_price_pico as f64 / 1e12;
+
+    // Get the mintA info
     let mint_a_account = get_account(&mint_a)?;
     let token_program_a = mint_a_account.owner;
     let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
@@ -119,27 +132,13 @@ fn parse_tessera_pool(
         .unwrap()
         .decimals;
 
-    // Oracle Price @ byte 128 (8 bytes, u64 in pico-USDC)
-    // for i in 300..1200 {
-    //     let oracle_price = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
-    //     println!("{} - {}", i, oracle_price);
-    // }
-
-    let oracle_price_pico = u64::from_le_bytes(data[128..136].try_into().unwrap());
-    let oracle_price =
-        oracle_price_pico as f64 / 10e14 / 10f64.powi(decimals_a as i32 - decimals_b as i32);
-
-    // Hardcoded vault addresses
-    let vault_a = get_vault_address(mint_a.to_string());
-    let vault_b = get_vault_address(mint_b.to_string());
-
-    Ok(Box::new(TesseraPool {
+    Ok(Box::new(HumidifiPool {
         pk: *pool_address,
+        oracle_price,
         mint_a,
         mint_b,
         token_program_a,
         token_program_b,
-        oracle_price,
         vault_a,
         vault_b,
         decimals_a,
@@ -147,27 +146,9 @@ fn parse_tessera_pool(
     }))
 }
 
-fn get_vault_address(mint: String) -> Pubkey {
-    match mint.as_str() {
-        "So11111111111111111111111111111111111111112" => {
-            get_pubkey_from_str("5pVN5XZB8cYBjNLFrsBCPWkCQBan5K5Mq2dWGzwPgGJV").unwrap()
-        }
-        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" => {
-            get_pubkey_from_str("9t4P5wMwfFkyn92Z7hf463qYKEZf8ERVZsGBEPNp8uJx").unwrap()
-        }
-        "METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL" => {
-            get_pubkey_from_str("98zmEfUKzsyhWgd6udFrRhfEUbpaLbiS77y2ZCSTWgZk").unwrap()
-        }
-        "Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk" => {
-            get_pubkey_from_str("68akEwyqPfMRV4ZrigHWSFSrZmT9GJ4WvvgFdiygsiFB").unwrap()
-        }
-        _ => panic!("Unsupported vault for {}", mint),
-    }
-}
-
-impl DexAdapter for TesseraAdapter {
+impl DexAdapter for HumidifiAdapter {
     fn get_program_id(&self) -> Pubkey {
-        TESSERA_PROGRAM_ID
+        HUMIDIFI_PROGRAM_ID
     }
 
     fn fetch_pair_data(
@@ -185,12 +166,17 @@ impl DexAdapter for TesseraAdapter {
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_rpc_getter(&self.client);
-        parse_tessera_pool(pool_address, &mut get_account)
+        parse_humidifi_pool(pool_address, &mut get_account)
+    }
+
+    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
+        let mut get_account = make_svm_getter(svm);
+        parse_humidifi_pool(pool_address, &mut get_account)
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
         let config = RpcProgramAccountsConfig {
-            filters: Some(vec![RpcFilterType::DataSize(1264)]),
+            filters: Some(vec![RpcFilterType::DataSize(1728)]),
             account_config: RpcAccountInfoConfig {
                 encoding: Some(UiAccountEncoding::Base64),
                 commitment: Some(CommitmentConfig::finalized()),
@@ -201,21 +187,10 @@ impl DexAdapter for TesseraAdapter {
 
         let accounts = self
             .client
-            .get_program_accounts_with_config(&TESSERA_PROGRAM_ID, config)?;
+            .get_program_accounts_with_config(&self.get_program_id(), config)?;
 
-        // Extract just the pubkeys, filtering for accounts that look like valid pools
-        let pubkeys: Vec<Pubkey> = accounts
-            .into_iter()
-            .filter_map(|(pubkey, account)| {
-                let data = account.data;
-                let is_valid = *(data.get(825).unwrap()) == (0 as u8);
-                // if !is_valid {
-                //     return None;
-                // }
-
-                Some(pubkey)
-            })
-            .collect();
+        // Extract just the pubkeys
+        let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
 
         Ok(pubkeys)
     }
@@ -226,55 +201,44 @@ impl DexAdapter for TesseraAdapter {
         user: &Pubkey,
         a_to_b: bool,
         amount_in: u64,
-        min_amount_out: u64,
+        _min_amount_out: u64,
     ) -> Result<Vec<Instruction>> {
         let pool = pool_data
             .as_any()
-            .downcast_ref::<TesseraPool>()
+            .downcast_ref::<HumidifiPool>()
             .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
         let swap_params = SwapParams {
-            side: a_to_b as u8,
+            swap_id: 0,
             amount_in,
-            min_amount_out,
+            is_base_to_quote: a_to_b as u8,
+            padding: [0; 7],
         };
 
-        // Tessera swap data
-        let mut data = Vec::with_capacity(18);
-        data.extend_from_slice(&TESSERA_SWAP_SELECTOR);
+        // Humidifi swap data
+        let mut data = Vec::with_capacity(25);
         data.extend_from_slice(&borsh::to_vec(&swap_params)?);
+        data.extend_from_slice(&HUMIDIFI_SWAP_SELECTOR);
 
         let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
         let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
 
         let accounts = vec![
-            AccountMeta::new_readonly(TESSERA_AUTHORITY, false),
-            AccountMeta::new(pool.pk, false),
             AccountMeta::new(*user, true), // signer
+            AccountMeta::new(pool.pk, false),
             AccountMeta::new(pool.vault_a, false),
             AccountMeta::new(pool.vault_b, false),
             AccountMeta::new(user_ata_a, false),
             AccountMeta::new(user_ata_b, false),
-            AccountMeta::new_readonly(pool.mint_a, false),
-            AccountMeta::new_readonly(pool.mint_b, false),
-            AccountMeta::new_readonly(pool.token_program_a, false),
-            AccountMeta::new_readonly(pool.token_program_b, false),
+            AccountMeta::new_readonly(solana_sdk::clock::sysvar::ID, false),
+            AccountMeta::new_readonly(spl_token::ID, false),
             AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
         ];
 
-        let swap_ix = Instruction {
-            program_id: TESSERA_PROGRAM_ID,
+        Ok(vec![Instruction {
+            program_id: self.get_program_id(),
             accounts,
             data,
-        };
-
-        let executor_ix = build_executor_instruction(*user, swap_ix);
-
-        Ok(vec![executor_ix])
-    }
-
-    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
-        let mut get_account = make_svm_getter(svm);
-        parse_tessera_pool(pool_address, &mut get_account)
+        }])
     }
 }

@@ -1,14 +1,18 @@
+use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
 use crate::{
     config::Config,
     constants::{GOONFI_PROGRAM_ID, GOONFI_SWAP_SELECTOR},
     utils::get_ata,
 };
 use anyhow::Result;
+use litesvm::LiteSVM;
 use solana_client::rpc_client::RpcClient;
+use solana_sdk::program_pack::Pack;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
+use spl_token::state::Mint;
 use std::{any::Any, str::FromStr};
 
 use super::{DexAdapter, PoolData};
@@ -34,6 +38,8 @@ pub struct GoonfiPool {
     pub token_program_a: Pubkey,
     pub token_program_b: Pubkey,
     pub oracle_price: f64, // in USD
+    pub decimals_a: u8,
+    pub decimals_b: u8,
 }
 
 impl PoolData for GoonfiPool {
@@ -56,6 +62,26 @@ impl PoolData for GoonfiPool {
     fn get_mint_b(&self) -> Pubkey {
         self.mint_b
     }
+
+    fn get_oracle_price(&self) -> f64 {
+        self.oracle_price
+    }
+
+    fn get_decimals_a(&self) -> u8 {
+        self.decimals_a
+    }
+
+    fn get_decimals_b(&self) -> u8 {
+        self.decimals_b
+    }
+
+    fn get_vault_a(&self) -> Pubkey {
+        self.vault_a
+    }
+
+    fn get_vault_b(&self) -> Pubkey {
+        self.vault_b
+    }
 }
 
 pub struct GoonfiAdapter {
@@ -68,56 +94,75 @@ impl GoonfiAdapter {
     }
 }
 
+fn parse_goonfi_pool(
+    pool_address: &Pubkey,
+    get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+) -> Result<Box<dyn PoolData>> {
+    let account = get_account(pool_address)?;
+    let data = &account.data;
+
+    let mint_a = Pubkey::new_from_array((&data[256..288]).try_into().unwrap());
+    let mint_b = Pubkey::new_from_array((&data[288..320]).try_into().unwrap());
+    let vault_a = Pubkey::new_from_array((&data[320..352]).try_into().unwrap());
+    let vault_b = Pubkey::new_from_array((&data[352..384]).try_into().unwrap());
+
+    // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
+    let oracle_price_pico: u64 = u64::from_le_bytes(data[16..24].try_into().unwrap());
+    let oracle_price = oracle_price_pico as f64 / 1e6;
+
+    // Get the mintA info
+    let mint_a_account = get_account(&mint_a)?;
+    let token_program_a = mint_a_account.owner;
+    let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
+        .unwrap()
+        .decimals;
+
+    let mint_b_account = get_account(&mint_b)?;
+    let token_program_b = mint_b_account.owner;
+    let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
+        .unwrap()
+        .decimals;
+
+    Ok(Box::new(GoonfiPool {
+        pk: *pool_address,
+        oracle_price,
+        mint_a,
+        mint_b,
+        token_program_a,
+        token_program_b,
+        vault_a,
+        vault_b,
+        decimals_a,
+        decimals_b,
+    }))
+}
+
 impl DexAdapter for GoonfiAdapter {
+    fn get_program_id(&self) -> Pubkey {
+        GOONFI_PROGRAM_ID
+    }
+
+    fn fetch_pair_data(
+        &self,
+        input_mint: &Pubkey,
+        output_mint: &Pubkey,
+        _config: &Config,
+    ) -> Result<Box<dyn PoolData>> {
+        anyhow::bail!("Not implemented");
+    }
+
     fn fetch_pool_data(
         &self,
         pool_address: &Pubkey,
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
-        let account = self.client.get_account(pool_address)?;
-        let data = &account.data;
+        let mut get_account = make_rpc_getter(&self.client);
+        parse_goonfi_pool(pool_address, &mut get_account)
+    }
 
-        // Parse according to Goonfi structure
-        // Discriminator @ bytes 0-7
-        let _discriminator = data[0..8].to_vec();
-
-        // Mint A @ byte 256 (32 bytes)
-        let mint_a_bytes = &data[256..288];
-        let mint_a = Pubkey::new_from_array(mint_a_bytes.try_into().unwrap());
-
-        // Mint B @ byte 288 (32 bytes)
-        let mint_b_bytes = &data[288..320];
-        let mint_b = Pubkey::new_from_array(mint_b_bytes.try_into().unwrap());
-
-        // Vault A @ byte 320 (32 bytes)
-        let vault_a_bytes = &data[320..352];
-        let vault_a = Pubkey::new_from_array(vault_a_bytes.try_into().unwrap());
-
-        // Vault B @ byte 352 (32 bytes)
-        let vault_b_bytes = &data[352..384];
-        let vault_b = Pubkey::new_from_array(vault_b_bytes.try_into().unwrap());
-
-        // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
-        let oracle_price_pico: u64 = u64::from_le_bytes(data[16..24].try_into().unwrap());
-        let oracle_price = oracle_price_pico as f64 / 1e6;
-
-        // Get the mintA info
-        let mint_a_account = self.client.get_account(&mint_a)?;
-        let token_program_a = mint_a_account.owner;
-
-        let mint_b_account = self.client.get_account(&mint_b)?;
-        let token_program_b = mint_b_account.owner;
-
-        Ok(Box::new(GoonfiPool {
-            pk: *pool_address,
-            oracle_price,
-            mint_a,
-            mint_b,
-            token_program_a,
-            token_program_b,
-            vault_a,
-            vault_b,
-        }))
+    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
+        let mut get_account = make_svm_getter(svm);
+        parse_goonfi_pool(pool_address, &mut get_account)
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
@@ -134,7 +179,7 @@ impl DexAdapter for GoonfiAdapter {
         &self,
         pool_data: &dyn PoolData,
         user: &Pubkey,
-        input_token: &Pubkey,
+        a_to_b: bool,
         amount_in: u64,
         min_amount_out: u64,
     ) -> Result<Vec<Instruction>> {
@@ -143,7 +188,7 @@ impl DexAdapter for GoonfiAdapter {
             .downcast_ref::<GoonfiPool>()
             .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
-        let is_user_bid = input_token.eq(&pool.mint_b) as bool;
+        let is_user_bid = !a_to_b;
         let swap_params = SwapParams {
             is_user_bid,
             bump: 0xff,

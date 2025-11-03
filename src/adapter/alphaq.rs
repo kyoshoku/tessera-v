@@ -4,22 +4,26 @@ use crate::{
     utils::get_ata,
 };
 use anyhow::Result;
+use litesvm::LiteSVM;
 use solana_account_decoder::UiAccountEncoding;
 use solana_client::{
     rpc_client::RpcClient,
     rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
     rpc_filter::RpcFilterType,
 };
+use solana_program::program_pack::Pack;
 use solana_program::pubkey;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
+use spl_token::state::Mint;
 use std::any::Any;
 
 use super::{DexAdapter, PoolData};
 
+use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Common swap parameters
@@ -40,6 +44,8 @@ pub struct AlphaqPool {
     pub token_program_a: Pubkey,
     pub token_program_b: Pubkey,
     pub oracle_price: f64, // in USD
+    pub decimals_a: u8,
+    pub decimals_b: u8,
 
     pub vendor_authority: Pubkey,
     pub token_a_authority: Pubkey,
@@ -66,6 +72,26 @@ impl PoolData for AlphaqPool {
     fn get_mint_b(&self) -> Pubkey {
         self.mint_b
     }
+
+    fn get_decimals_a(&self) -> u8 {
+        self.decimals_a
+    }
+
+    fn get_decimals_b(&self) -> u8 {
+        self.decimals_b
+    }
+
+    fn get_oracle_price(&self) -> f64 {
+        self.oracle_price
+    }
+
+    fn get_vault_a(&self) -> Pubkey {
+        self.vault_a
+    }
+
+    fn get_vault_b(&self) -> Pubkey {
+        self.vault_b
+    }
 }
 
 pub struct AlphaqAdapter {
@@ -78,50 +104,84 @@ impl AlphaqAdapter {
     }
 }
 
+fn parse_alphaq_pool(
+    pool_address: &Pubkey,
+    get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+) -> Result<Box<dyn PoolData>> {
+    let account = get_account(pool_address)?;
+    let data = &account.data;
+
+    let vault_a = Pubkey::new_from_array((&data[112..144]).try_into().unwrap());
+    let vault_b = Pubkey::new_from_array((&data[144..176]).try_into().unwrap());
+
+    let token_a_authority = Pubkey::new_from_array((&data[176..208]).try_into().unwrap());
+    let token_b_authority = Pubkey::new_from_array((&data[208..240]).try_into().unwrap());
+
+    let mint_a = Pubkey::new_from_array((&data[240..272]).try_into().unwrap());
+    let mint_b = Pubkey::new_from_array((&data[272..304]).try_into().unwrap());
+
+    let vendor_authority = Pubkey::new_from_array((&data[304..336]).try_into().unwrap());
+
+    // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
+    let oracle_price_pico: u64 = u64::from_le_bytes(data[424..432].try_into().unwrap());
+    let oracle_price = oracle_price_pico as f64 / 1e10;
+
+    // Get the mintA/B info
+    let mint_a_account = get_account(&mint_a)?;
+    let token_program_a = mint_a_account.owner;
+    let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
+        .unwrap()
+        .decimals;
+
+    let mint_b_account = get_account(&mint_b)?;
+    let token_program_b = mint_b_account.owner;
+    let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
+        .unwrap()
+        .decimals;
+
+    Ok(Box::new(AlphaqPool {
+        pk: *pool_address,
+        oracle_price,
+        mint_a,
+        mint_b,
+        decimals_a,
+        decimals_b,
+        vault_a,
+        vault_b,
+        token_a_authority,
+        token_b_authority,
+        vendor_authority,
+        token_program_a,
+        token_program_b,
+    }))
+}
+
 impl DexAdapter for AlphaqAdapter {
+    fn get_program_id(&self) -> Pubkey {
+        ALPHAQ_PROGRAM_ID
+    }
+
     fn fetch_pool_data(
         &self,
         pool_address: &Pubkey,
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
-        let account = self.client.get_account(pool_address)?;
-        let data = &account.data;
+        let mut get_account = make_rpc_getter(&self.client);
+        parse_alphaq_pool(pool_address, &mut get_account)
+    }
 
-        let vault_a = Pubkey::new_from_array((&data[112..144]).try_into().unwrap());
-        let vault_b = Pubkey::new_from_array((&data[144..176]).try_into().unwrap());
+    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
+        let mut get_account = make_svm_getter(svm);
+        parse_alphaq_pool(pool_address, &mut get_account)
+    }
 
-        let token_a_authority = Pubkey::new_from_array((&data[176..208]).try_into().unwrap());
-        let token_b_authority = Pubkey::new_from_array((&data[208..240]).try_into().unwrap());
-
-        let mint_a = Pubkey::new_from_array((&data[240..272]).try_into().unwrap());
-        let mint_b = Pubkey::new_from_array((&data[272..304]).try_into().unwrap());
-
-        let vendor_authority = Pubkey::new_from_array((&data[304..336]).try_into().unwrap());
-
-        // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
-        let oracle_price_pico: u64 = u64::from_le_bytes(data[424..432].try_into().unwrap());
-        let oracle_price = oracle_price_pico as f64 / 1e10;
-
-        // Get the mintA info
-        let mint_a_account = self.client.get_account(&mint_a)?;
-        let token_program_a = mint_a_account.owner;
-
-        let mint_b_account = self.client.get_account(&mint_b)?;
-        let token_program_b = mint_b_account.owner;
-
-        Ok(Box::new(AlphaqPool {
-            pk: *pool_address,
-            oracle_price,
-            mint_a,
-            mint_b,
-            vault_a,
-            vault_b,
-            token_a_authority,
-            token_b_authority,
-            vendor_authority,
-            token_program_a,
-            token_program_b,
-        }))
+    fn fetch_pair_data(
+        &self,
+        input_mint: &Pubkey,
+        output_mint: &Pubkey,
+        _config: &Config,
+    ) -> Result<Box<dyn PoolData>> {
+        anyhow::bail!("Not implemented");
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
@@ -149,7 +209,7 @@ impl DexAdapter for AlphaqAdapter {
         &self,
         pool_data: &dyn PoolData,
         user: &Pubkey,
-        input_token: &Pubkey,
+        a_to_b: bool,
         amount_in: u64,
         min_amount_out: u64,
     ) -> Result<Vec<Instruction>> {
@@ -158,9 +218,8 @@ impl DexAdapter for AlphaqAdapter {
             .downcast_ref::<AlphaqPool>()
             .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
-        let a_to_b = input_token.eq(&pool.mint_a) as u8;
         let swap_params = SwapParams {
-            a_to_b,
+            a_to_b: a_to_b as u8,
             amount_in,
             min_amount_out,
         };

@@ -6,12 +6,14 @@ pub const DEFAULT_RPC_URL: &str = "https://api.mainnet-beta.solana.com";
 
 /// Common pubkeys
 pub const ATA_PROGRAM_ID: Pubkey = pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-pub const EXECUTOR_PROGRAM_ID: Pubkey = pubkey!("G4KYKzZdhuLfW4E1vZd2oDdZvpsjN98aNp2E45CC4tXK");
+pub const EXECUTOR_PROGRAM_ID: Pubkey = pubkey!("4oZM6h9uREbnjcWfy97EYPmDwUZijhjCnej6jZaHCGv1");
+pub const EXECUTOR_PROGRAM_PATH: &str = "data/executor.so";
 
 /// Tessera values
 pub const TESSERA_SWAP_SELECTOR: [u8; 1] = [0x10];
 pub const TESSERA_PROGRAM_ID: Pubkey = pubkey!("TessVdML9pBGgG9yGks7o4HewRaXVAMuoVj4x83GLQH");
 pub const TESSERA_AUTHORITY: Pubkey = pubkey!("8ekCy2jHHUbW2yeNGFWYJT9Hm9FW7SvZcZK66dSZCDiF");
+pub const TESSERA_PROGRAM_PATH: &str = "data/tesserav.so";
 
 /// Goonfi values
 pub const GOONFI_SWAP_SELECTOR: [u8; 1] = [0x2];
@@ -28,5 +30,13 @@ pub const ALPHAQ_PROGRAM_ID: Pubkey = pubkey!("ALPHAQmeA7bjrVuccPsYPiCvsi428SNwt
 /// Saros values
 pub const SAROS_SWAP_SELECTOR: [u8; 1] = [0x1];
 pub const SAROS_PROGRAM_ID: Pubkey = pubkey!("SSwapUtytfBdBn1b9NUGG6foMVPtcWgpRU32HToDUZr");
+
+/// Humidifi values
+pub const HUMIDIFI_SWAP_SELECTOR: [u8; 1] = [0x4];
+pub const HUMIDIFI_PROGRAM_ID: Pubkey = pubkey!("9H6tua7jkLhdm3w8BvgpTn5LZNU7g4ZynDmCiNN3q6Rp");
+
+/// Aquifer values
+pub const AQUIFER_SWAP_SELECTOR: [u8; 1] = [0x1];
+pub const AQUIFER_PROGRAM_ID: Pubkey = pubkey!("AQU1FRd7papthgdrwPTTq5JacJh8YtwEXaBfKU3bTz45");
 
 pub const WSOL_MINT: Pubkey = pubkey!("So11111111111111111111111111111111111111112");

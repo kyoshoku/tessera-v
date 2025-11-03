@@ -1,14 +1,18 @@
+use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
 use crate::{
     config::Config,
     constants::{SAROS_PROGRAM_ID, SAROS_SWAP_SELECTOR},
     utils::{get_ata, get_pubkey_from_str},
 };
 use anyhow::Result;
+use litesvm::LiteSVM;
 use solana_client::rpc_client::RpcClient;
+use solana_sdk::program_pack::Pack;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
+use spl_token::state::{Account as TokenAccount, Mint};
 use std::any::Any;
 
 use super::{DexAdapter, PoolData};
@@ -32,6 +36,8 @@ pub struct SarosPool {
     pub token_program_a: Pubkey,
     pub token_program_b: Pubkey,
     pub oracle_price: f64, // in USD
+    pub decimals_a: u8,
+    pub decimals_b: u8,
 
     pub pool_mint: Pubkey,
     pub pool_fee: Pubkey,
@@ -59,6 +65,26 @@ impl PoolData for SarosPool {
     fn get_mint_b(&self) -> Pubkey {
         self.mint_b
     }
+
+    fn get_oracle_price(&self) -> f64 {
+        self.oracle_price
+    }
+
+    fn get_decimals_a(&self) -> u8 {
+        self.decimals_a
+    }
+
+    fn get_decimals_b(&self) -> u8 {
+        self.decimals_b
+    }
+
+    fn get_vault_a(&self) -> Pubkey {
+        self.vault_a
+    }
+
+    fn get_vault_b(&self) -> Pubkey {
+        self.vault_b
+    }
 }
 
 pub struct SarosAdapter {
@@ -69,6 +95,61 @@ impl SarosAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
+}
+
+fn parse_saros_pool(
+    pool_address: &Pubkey,
+    get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+) -> Result<Box<dyn PoolData>> {
+    let pool_acc = get_account(pool_address)?;
+    let data = &pool_acc.data;
+
+    let token_program = Pubkey::new_from_array((&data[3..35]).try_into().unwrap());
+    let vault_a = Pubkey::new_from_array((&data[35..67]).try_into().unwrap());
+    let vault_b = Pubkey::new_from_array((&data[67..99]).try_into().unwrap());
+    let pool_mint = Pubkey::new_from_array((&data[99..131]).try_into().unwrap());
+    let mint_a = Pubkey::new_from_array((&data[131..163]).try_into().unwrap());
+    let mint_b = Pubkey::new_from_array((&data[163..195]).try_into().unwrap());
+    let pool_fee = Pubkey::new_from_array((&data[195..227]).try_into().unwrap());
+
+    let swap_authority = super::saros_amm::get_swap_authority(pool_address.to_string());
+
+    // Get the mintA/B info
+    let mint_a_account = get_account(&mint_a)?;
+    let token_program_a = mint_a_account.owner;
+
+    let mint_b_account = get_account(&mint_b)?;
+    let token_program_b = mint_b_account.owner;
+
+    // Compute price by unpacking token accounts and mint decimals
+    let va_acc = get_account(&vault_a)?;
+    let vb_acc = get_account(&vault_b)?;
+    let va = TokenAccount::unpack_unchecked(&va_acc.data).unwrap();
+    let vb = TokenAccount::unpack_unchecked(&vb_acc.data).unwrap();
+
+    let mint_a_acc = Mint::unpack_unchecked(&mint_a_account.data).unwrap();
+    let mint_b_acc = Mint::unpack_unchecked(&mint_b_account.data).unwrap();
+
+    let ui_a = va.amount as f64 / 10f64.powi(mint_a_acc.decimals as i32);
+    let ui_b = vb.amount as f64 / 10f64.powi(mint_b_acc.decimals as i32);
+    let oracle_price = ui_a / ui_b;
+
+    Ok(Box::new(SarosPool {
+        pk: *pool_address,
+        oracle_price,
+        mint_a,
+        mint_b,
+        vault_a,
+        vault_b,
+        pool_fee,
+        pool_mint,
+        swap_authority,
+        token_program_a,
+        token_program_b,
+        token_program,
+        decimals_a: mint_a_acc.decimals,
+        decimals_b: mint_b_acc.decimals,
+    }))
 }
 
 fn get_swap_authority(pool: String) -> Pubkey {
@@ -87,60 +168,35 @@ fn get_swap_authority(pool: String) -> Pubkey {
 }
 
 impl DexAdapter for SarosAdapter {
+    fn get_program_id(&self) -> Pubkey {
+        SAROS_PROGRAM_ID
+    }
+
+    fn fetch_pair_data(
+        &self,
+        input_mint: &Pubkey,
+        output_mint: &Pubkey,
+        _config: &Config,
+    ) -> Result<Box<dyn PoolData>> {
+        anyhow::bail!("Not implemented");
+    }
+
     fn fetch_pool_data(
         &self,
         pool_address: &Pubkey,
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
-        let account = self.client.get_account(pool_address)?;
-        let data = &account.data;
-
-        let token_program = Pubkey::new_from_array((&data[3..35]).try_into().unwrap());
-        let vault_a = Pubkey::new_from_array((&data[35..67]).try_into().unwrap());
-        let vault_b = Pubkey::new_from_array((&data[67..99]).try_into().unwrap());
-        let pool_mint = Pubkey::new_from_array((&data[99..131]).try_into().unwrap());
-        let mint_a = Pubkey::new_from_array((&data[131..163]).try_into().unwrap());
-        let mint_b = Pubkey::new_from_array((&data[163..195]).try_into().unwrap());
-        let pool_fee = Pubkey::new_from_array((&data[195..227]).try_into().unwrap());
-
-        let swap_authority = get_swap_authority(pool_address.to_string());
-
-        // Get the mintA/B info
-        let mint_a_account = self.client.get_account(&mint_a)?;
-        let token_program_a = mint_a_account.owner;
-
-        let mint_b_account = self.client.get_account(&mint_b)?;
-        let token_program_b = mint_b_account.owner;
-
-        // Saros AMM, so no oracle price & calcualte from vault (should apply AMM rule)
-        let vault_a_amount = self.client.get_token_account_balance(&vault_a)?;
-        let vault_b_amount = self.client.get_token_account_balance(&vault_b)?;
-        let oracle_price = vault_a_amount.ui_amount.unwrap_or_default()
-            / vault_b_amount.ui_amount.unwrap_or_default();
-
-        Ok(Box::new(SarosPool {
-            pk: *pool_address,
-            oracle_price,
-            mint_a,
-            mint_b,
-            vault_a,
-            vault_b,
-            pool_fee,
-            pool_mint,
-            swap_authority,
-            token_program_a,
-            token_program_b,
-            token_program,
-        }))
+        let mut get_account = make_rpc_getter(&self.client);
+        parse_saros_pool(pool_address, &mut get_account)
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
         // Get all accounts owned by the Saros program
         let accounts = self.client.get_program_accounts(&SAROS_PROGRAM_ID)?;
-        
+
         // Extract just the pubkeys
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
-        
+
         Ok(pubkeys)
     }
 
@@ -148,7 +204,7 @@ impl DexAdapter for SarosAdapter {
         &self,
         pool_data: &dyn PoolData,
         user: &Pubkey,
-        input_token: &Pubkey,
+        a_to_b: bool,
         amount_in: u64,
         min_amount_out: u64,
     ) -> Result<Vec<Instruction>> {
@@ -167,18 +223,16 @@ impl DexAdapter for SarosAdapter {
         data.extend_from_slice(&SAROS_SWAP_SELECTOR);
         data.extend_from_slice(&borsh::to_vec(&swap_params)?);
 
-        let is_a_to_b = input_token.eq(&pool.mint_a);
-
         let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
         let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
 
-        let (user_source, user_destination) = if is_a_to_b {
+        let (user_source, user_destination) = if a_to_b {
             (user_ata_a, user_ata_b)
         } else {
             (user_ata_b, user_ata_a)
         };
 
-        let (vault_source, vault_destination) = if is_a_to_b {
+        let (vault_source, vault_destination) = if a_to_b {
             (pool.vault_a, pool.vault_b)
         } else {
             (pool.vault_b, pool.vault_a)
@@ -202,5 +256,10 @@ impl DexAdapter for SarosAdapter {
             accounts,
             data,
         }])
+    }
+
+    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
+        let mut get_account = make_svm_getter(svm);
+        parse_saros_pool(pool_address, &mut get_account)
     }
 }
