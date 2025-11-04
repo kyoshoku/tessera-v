@@ -334,7 +334,7 @@ impl DexAdapter for ZeroFiAdapter {
         };
 
         let accounts = vec![
-            AccountMeta::new_readonly(pool.pk, false),
+            AccountMeta::new(pool.pk, false),
             AccountMeta::new(vault_source_state, false),
             AccountMeta::new(vault_source, false),
             AccountMeta::new(vault_destination_state, false),
