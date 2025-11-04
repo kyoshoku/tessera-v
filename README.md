@@ -35,6 +35,7 @@ cargo run -- --protocol saros read -p 7EFmig3Jb9j1kJ7ppaUs5iY8P5pBnRdQXUR4q9vSCY
 cargo run -- --protocol alphaq read -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
 cargo run -- --protocol humidifi read -p 3QYYvFWgSuGK8bbxMSAYkCqE8QfSuFtByagnZAuekia2
 cargo run -- --protocol aquifer read -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
+cargo run -- --protocol zerofi read -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB
 
 # Build and submit swap transaction
 cargo run -- swap -p BDqQBspbipXxnTX2kw4FPM9pzfcf9kwieGCy4yUZ9tCC -i 1000000 -a 1
@@ -50,6 +51,7 @@ cargo run --  --protocol goonfi simulate -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7d
 cargo run --  --protocol obric simulate -p 3csCx7o3KCvpXeRZYjhCGrgXdKyjSgaqcirc5pZJUJCf -i 1000000 -a 1
 cargo run --  --protocol saros simulate -p 2wUvdZA8ZsY714Y5wUL9fkFmupJGGwzui2N74zqJWgty -i 1000000 -a 1
 cargo run --  --protocol aquifer simulate -i So11111111111111111111111111111111111111112 -o 7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs -a 1000000
+cargo run --  --protocol zerofi simulate -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -o JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN -a 10000
 
 # List all pool accounts for a protocol
 cargo run -- list --protocol tessera
@@ -59,12 +61,14 @@ cargo run -- list --protocol saros
 cargo run -- list --protocol alphaq
 cargo run -- list --protocol aquifer
 cargo run -- list --protocol humidifi
+cargo run -- list --protocol zerofi
 
 
 # Dump accounts for protocol
-cargo run -- -p tessera dump -p BDqQBspbipXxnTX2kw4FPM9pzfcf9kwieGCy4yUZ9tCC
+cargo run -- -p zerofi dump -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB
 
 cargo run -- -p tessera curve-simulate -p BDqQBspbipXxnTX2kw4FPM9pzfcf9kwieGCy4yUZ9tCC -a 1
+cargo run -- -p zerofi curve-simulate -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB -a 1
 
 ```
 

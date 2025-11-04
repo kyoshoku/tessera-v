@@ -57,8 +57,8 @@ pub struct AquiferPool {
 
     pub oracle_a: Pubkey,
     pub oracle_b: Pubkey,
-    pub vault_ata_a: Pubkey,
-    pub vault_ata_b: Pubkey,
+    pub vault_a_state: Pubkey,
+    pub vault_b_state: Pubkey,
 }
 
 impl PoolData for AquiferPool {
@@ -111,16 +111,15 @@ impl AquiferAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
-}
 
-fn parse_aqufier_pool(
-    pool_address: &Pubkey,
-    get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
-) -> Result<Box<dyn PoolData>> {
-    anyhow::bail!("Not implemented");
-}
+    fn parse_aqufier_pool(
+        &self,
+        pool_address: &Pubkey,
+        get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+    ) -> Result<Box<dyn PoolData>> {
+        anyhow::bail!("Not implemented");
+    }
 
-impl AquiferAdapter {
     fn parse_aqufier_pair(
         &self,
         input_mint: &Pubkey,
@@ -151,12 +150,12 @@ impl AquiferAdapter {
             decimals_b,
             token_program_a,
             token_program_b,
-            vault_a: vault_a_info.address,
-            vault_b: vault_b_info.address,
+            vault_a: vault_a_info.ata,
+            vault_b: vault_b_info.ata,
+            vault_a_state: vault_a_info.address,
+            vault_b_state: vault_b_info.address,
             oracle_a: vault_a_info.oracle,
             oracle_b: vault_b_info.oracle,
-            vault_ata_a: vault_a_info.ata,
-            vault_ata_b: vault_b_info.ata,
         }))
     }
 
@@ -207,12 +206,12 @@ impl DexAdapter for AquiferAdapter {
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_rpc_getter(&self.client);
-        parse_aqufier_pool(pool_address, &mut get_account)
+        self.parse_aqufier_pool(pool_address, &mut get_account)
     }
 
     fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_svm_getter(svm);
-        parse_aqufier_pool(pool_address, &mut get_account)
+        self.parse_aqufier_pool(pool_address, &mut get_account)
     }
 
     fn fetch_pair_data(
@@ -284,10 +283,10 @@ impl DexAdapter for AquiferAdapter {
             AccountMeta::new(AQUIFER_POOL_STATE, false),
             AccountMeta::new_readonly(pool.oracle_b, false),
             AccountMeta::new_readonly(pool.oracle_a, false),
+            AccountMeta::new(pool.vault_b_state, false),
             AccountMeta::new(pool.vault_b, false),
-            AccountMeta::new(pool.vault_ata_b, false),
+            AccountMeta::new(pool.vault_a_state, false),
             AccountMeta::new(pool.vault_a, false),
-            AccountMeta::new(pool.vault_ata_a, false),
         ];
 
         Ok(vec![Instruction {

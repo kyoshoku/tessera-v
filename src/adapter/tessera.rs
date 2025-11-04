@@ -86,67 +86,6 @@ impl PoolData for TesseraPool {
     }
 }
 
-pub struct TesseraAdapter {
-    client: RpcClient,
-}
-
-impl TesseraAdapter {
-    pub fn new(client: RpcClient) -> Self {
-        Self { client }
-    }
-}
-
-fn parse_tessera_pool(
-    pool_address: &Pubkey,
-    get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
-) -> Result<Box<dyn PoolData>> {
-    let account = get_account(pool_address)?;
-    let data = &account.data;
-
-    let mint_a = Pubkey::new_from_array((&data[24..56]).try_into().unwrap());
-    let mint_b = Pubkey::new_from_array((&data[56..88]).try_into().unwrap());
-
-    // Get the mintA/B info
-    let mint_a_account = get_account(&mint_a)?;
-    let token_program_a = mint_a_account.owner;
-    let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
-        .unwrap()
-        .decimals;
-
-    let mint_b_account = get_account(&mint_b)?;
-    let token_program_b = mint_b_account.owner;
-    let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
-        .unwrap()
-        .decimals;
-
-    // Oracle Price @ byte 128 (8 bytes, u64 in pico-USDC)
-    // for i in 300..1200 {
-    //     let oracle_price = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
-    //     println!("{} - {}", i, oracle_price);
-    // }
-
-    let oracle_price_pico = u64::from_le_bytes(data[128..136].try_into().unwrap());
-    let oracle_price =
-        oracle_price_pico as f64 / 10e14 / 10f64.powi(decimals_a as i32 - decimals_b as i32);
-
-    // Hardcoded vault addresses
-    let vault_a = get_vault_address(mint_a.to_string());
-    let vault_b = get_vault_address(mint_b.to_string());
-
-    Ok(Box::new(TesseraPool {
-        pk: *pool_address,
-        mint_a,
-        mint_b,
-        token_program_a,
-        token_program_b,
-        oracle_price,
-        vault_a,
-        vault_b,
-        decimals_a,
-        decimals_b,
-    }))
-}
-
 fn get_vault_address(mint: String) -> Pubkey {
     match mint.as_str() {
         "So11111111111111111111111111111111111111112" => {
@@ -162,6 +101,68 @@ fn get_vault_address(mint: String) -> Pubkey {
             get_pubkey_from_str("68akEwyqPfMRV4ZrigHWSFSrZmT9GJ4WvvgFdiygsiFB").unwrap()
         }
         _ => panic!("Unsupported vault for {}", mint),
+    }
+}
+
+pub struct TesseraAdapter {
+    client: RpcClient,
+}
+
+impl TesseraAdapter {
+    pub fn new(client: RpcClient) -> Self {
+        Self { client }
+    }
+
+    fn parse_tessera_pool(
+        &self,
+        pool_address: &Pubkey,
+        get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+    ) -> Result<Box<dyn PoolData>> {
+        let account = get_account(pool_address)?;
+        let data = &account.data;
+
+        let mint_a = Pubkey::new_from_array((&data[24..56]).try_into().unwrap());
+        let mint_b = Pubkey::new_from_array((&data[56..88]).try_into().unwrap());
+
+        // Get the mintA/B info
+        let mint_a_account = get_account(&mint_a)?;
+        let token_program_a = mint_a_account.owner;
+        let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
+            .unwrap()
+            .decimals;
+
+        let mint_b_account = get_account(&mint_b)?;
+        let token_program_b = mint_b_account.owner;
+        let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
+            .unwrap()
+            .decimals;
+
+        // Oracle Price @ byte 128 (8 bytes, u64 in pico-USDC)
+        // for i in 300..1200 {
+        //     let oracle_price = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
+        //     println!("{} - {}", i, oracle_price);
+        // }
+
+        let oracle_price_pico = u64::from_le_bytes(data[128..136].try_into().unwrap());
+        let oracle_price =
+            oracle_price_pico as f64 / 10e14 / 10f64.powi(decimals_a as i32 - decimals_b as i32);
+
+        // Hardcoded vault addresses
+        let vault_a = get_vault_address(mint_a.to_string());
+        let vault_b = get_vault_address(mint_b.to_string());
+
+        Ok(Box::new(TesseraPool {
+            pk: *pool_address,
+            mint_a,
+            mint_b,
+            token_program_a,
+            token_program_b,
+            oracle_price,
+            vault_a,
+            vault_b,
+            decimals_a,
+            decimals_b,
+        }))
     }
 }
 
@@ -185,7 +186,12 @@ impl DexAdapter for TesseraAdapter {
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_rpc_getter(&self.client);
-        parse_tessera_pool(pool_address, &mut get_account)
+        self.parse_tessera_pool(pool_address, &mut get_account)
+    }
+
+    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
+        let mut get_account = make_svm_getter(svm);
+        self.parse_tessera_pool(pool_address, &mut get_account)
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
@@ -271,10 +277,5 @@ impl DexAdapter for TesseraAdapter {
         let executor_ix = build_executor_instruction(*user, swap_ix);
 
         Ok(vec![executor_ix])
-    }
-
-    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
-        let mut get_account = make_svm_getter(svm);
-        parse_tessera_pool(pool_address, &mut get_account)
     }
 }

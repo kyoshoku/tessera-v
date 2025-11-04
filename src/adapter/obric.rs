@@ -96,67 +96,68 @@ impl ObricAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
-}
 
-fn parse_obric_pool(
-    pool_address: &Pubkey,
-    get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
-) -> Result<Box<dyn PoolData>> {
-    let account = get_account(pool_address)?;
-    let data = &account.data;
+    fn parse_obric_pool(
+        &self,
+        pool_address: &Pubkey,
+        get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+    ) -> Result<Box<dyn PoolData>> {
+        let account = get_account(pool_address)?;
+        let data = &account.data;
 
-    let price_feed_x = Pubkey::new_from_array((&data[9..41]).try_into().unwrap());
-    let price_feed_y = Pubkey::new_from_array((&data[41..73]).try_into().unwrap());
+        let price_feed_x = Pubkey::new_from_array((&data[9..41]).try_into().unwrap());
+        let price_feed_y = Pubkey::new_from_array((&data[41..73]).try_into().unwrap());
 
-    let vault_a = Pubkey::new_from_array((&data[73..105]).try_into().unwrap());
-    let vault_b = Pubkey::new_from_array((&data[105..137]).try_into().unwrap());
+        let vault_a = Pubkey::new_from_array((&data[73..105]).try_into().unwrap());
+        let vault_b = Pubkey::new_from_array((&data[105..137]).try_into().unwrap());
 
-    let protocol_fee_x = Pubkey::new_from_array((&data[137..169]).try_into().unwrap());
-    let protocol_fee_y = Pubkey::new_from_array((&data[169..201]).try_into().unwrap());
+        let protocol_fee_x = Pubkey::new_from_array((&data[137..169]).try_into().unwrap());
+        let protocol_fee_y = Pubkey::new_from_array((&data[169..201]).try_into().unwrap());
 
-    let mint_a = Pubkey::new_from_array((&data[202..234]).try_into().unwrap());
-    let mint_b = Pubkey::new_from_array((&data[234..266]).try_into().unwrap());
+        let mint_a = Pubkey::new_from_array((&data[202..234]).try_into().unwrap());
+        let mint_b = Pubkey::new_from_array((&data[234..266]).try_into().unwrap());
 
-    let mint_sslp_x = Pubkey::new_from_array((&data[482..514]).try_into().unwrap());
-    let mint_sslp_y = Pubkey::new_from_array((&data[514..546]).try_into().unwrap());
+        let mint_sslp_x = Pubkey::new_from_array((&data[482..514]).try_into().unwrap());
+        let mint_sslp_y = Pubkey::new_from_array((&data[514..546]).try_into().unwrap());
 
-    // Get the mintA info
-    let mint_a_account = get_account(&mint_a)?;
-    let mint_a_decimals = Mint::unpack_unchecked(&mint_a_account.data)
-        .unwrap()
-        .decimals;
-    let token_program_a = mint_a_account.owner;
+        // Get the mintA info
+        let mint_a_account = get_account(&mint_a)?;
+        let mint_a_decimals = Mint::unpack_unchecked(&mint_a_account.data)
+            .unwrap()
+            .decimals;
+        let token_program_a = mint_a_account.owner;
 
-    let mint_b_account = get_account(&mint_b)?;
-    let mint_b_decimals = Mint::unpack_unchecked(&mint_b_account.data)
-        .unwrap()
-        .decimals;
-    let token_program_b = mint_b_account.owner;
+        let mint_b_account = get_account(&mint_b)?;
+        let mint_b_decimals = Mint::unpack_unchecked(&mint_b_account.data)
+            .unwrap()
+            .decimals;
+        let token_program_b = mint_b_account.owner;
 
-    // Oracle Price @ byte 128 (8 bytes, u64 in pico-USDC)
-    let oracle_x = u64::from_le_bytes(data[306..314].try_into().unwrap());
-    let oracle_y = u64::from_le_bytes(data[314..322].try_into().unwrap());
-    let oracle_price = (oracle_x as f64 / oracle_y as f64)
-        * 10f64.powi(mint_a_decimals as i32 - mint_b_decimals as i32);
+        // Oracle Price @ byte 128 (8 bytes, u64 in pico-USDC)
+        let oracle_x = u64::from_le_bytes(data[306..314].try_into().unwrap());
+        let oracle_y = u64::from_le_bytes(data[314..322].try_into().unwrap());
+        let oracle_price = (oracle_x as f64 / oracle_y as f64)
+            * 10f64.powi(mint_a_decimals as i32 - mint_b_decimals as i32);
 
-    Ok(Box::new(ObricPool {
-        pk: *pool_address,
-        oracle_price,
-        mint_a,
-        mint_b,
-        vault_a,
-        vault_b,
-        token_program_a,
-        token_program_b,
-        decimals_a: mint_a_decimals,
-        decimals_b: mint_b_decimals,
-        price_feed_x,
-        price_feed_y,
-        protocol_fee_x,
-        protocol_fee_y,
-        mint_sslp_x,
-        mint_sslp_y,
-    }))
+        Ok(Box::new(ObricPool {
+            pk: *pool_address,
+            oracle_price,
+            mint_a,
+            mint_b,
+            vault_a,
+            vault_b,
+            token_program_a,
+            token_program_b,
+            decimals_a: mint_a_decimals,
+            decimals_b: mint_b_decimals,
+            price_feed_x,
+            price_feed_y,
+            protocol_fee_x,
+            protocol_fee_y,
+            mint_sslp_x,
+            mint_sslp_y,
+        }))
+    }
 }
 
 impl DexAdapter for ObricAdapter {
@@ -179,7 +180,12 @@ impl DexAdapter for ObricAdapter {
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_rpc_getter(&self.client);
-        parse_obric_pool(pool_address, &mut get_account)
+        self.parse_obric_pool(pool_address, &mut get_account)
+    }
+
+    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
+        let mut get_account = make_svm_getter(svm);
+        self.parse_obric_pool(pool_address, &mut get_account)
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
@@ -239,10 +245,5 @@ impl DexAdapter for ObricAdapter {
             accounts,
             data,
         }])
-    }
-
-    fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
-        let mut get_account = make_svm_getter(svm);
-        parse_obric_pool(pool_address, &mut get_account)
     }
 }

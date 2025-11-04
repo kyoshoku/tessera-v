@@ -224,6 +224,7 @@ async fn handle_dump_command(
     let pool_address = Pubkey::from_str(&pool_address)?;
     let program_id = adapter.get_program_id();
     let pool_data = adapter.fetch_pool_data(&pool_address, config)?;
+    pool_data.display();
 
     let swap_ixs = adapter.build_swap_instructions(
         pool_data.as_ref(),
@@ -243,6 +244,9 @@ async fn handle_dump_command(
             addresses.insert(account.pubkey);
         }
     }
+
+    addresses.insert(pool_data.get_mint_a());
+    addresses.insert(pool_data.get_mint_b());
 
     svm::dump_pool_accounts(
         addresses.into_iter().collect::<Vec<_>>(),
@@ -385,31 +389,24 @@ async fn handle_curve_simulate_command(
         token_balance(&svm, &output_vault) as f64 / 10f64.powi(output_decimals as i32);
     println!("Input vault balance: {}", input_vault_balance);
     println!("Output vault balance: {}", output_vault_balance);
-    println!(
-        "Pool: {}",
-        hex::encode(svm.get_account(&pool_address).unwrap().data)
-    );
 
     // Initialize SVM with the dumped accounts
     let user_keypair = Keypair::new();
     let user = user_keypair.pubkey();
 
     let mut in_amounts = vec![
-        // 1_000,
-        // 10_000,
-        // 100_000,
-        // 1_000_000,
-        // 10_000_000,
-        // 100_000_000,
-        // 1_000_000_000,
-        // 10_000_000_000,
-        // 100_000_000_000,
-        // 1_000_000_000_000,
-        // 10_000_000_000_000,
+        1_000,
+        10_000,
+        100_000,
+        1_000_000,
+        10_000_000,
+        100_000_000,
+        1_000_000_000,
+        10_000_000_000,
+        100_000_000_000,
+        1_000_000_000_000,
+        10_000_000_000_000,
     ];
-    for i in 1..1000 {
-        in_amounts.push(1_000_000_000 * i);
-    }
 
     let min_amount_out = 0;
 

@@ -15,6 +15,7 @@ use std::str::FromStr;
 
 use crate::constants::{
     EXECUTOR_PROGRAM_ID, EXECUTOR_PROGRAM_PATH, TESSERA_PROGRAM_ID, TESSERA_PROGRAM_PATH,
+    ZEROFI_PROGRAM_ID, ZEROFI_PROGRAM_PATH,
 };
 
 pub fn make_ata_account(mint: &Pubkey, user: &Pubkey, amount: u64) -> Account {
@@ -45,6 +46,7 @@ pub fn init_svm(dump_file_path: &str) -> Result<LiteSVM> {
 
     svm.add_program_from_file(EXECUTOR_PROGRAM_ID, EXECUTOR_PROGRAM_PATH)?;
     svm.add_program_from_file(TESSERA_PROGRAM_ID, TESSERA_PROGRAM_PATH)?;
+    svm.add_program_from_file(ZEROFI_PROGRAM_ID, ZEROFI_PROGRAM_PATH)?;
 
     // Load accounts from dump file and get slot number
     let slot = load_accounts_from_dump(&mut svm, dump_file_path)?;

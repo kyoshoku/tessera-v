@@ -13,7 +13,7 @@ use std::str::FromStr;
 use crate::adapter::aquifer::AquiferAdapter;
 use crate::adapter::{
     alphaq::AlphaqAdapter, goonfi::GoonfiAdapter, humidifi::HumidifiAdapter, obric::ObricAdapter,
-    saros_amm::SarosAdapter, tessera::TesseraAdapter, DexAdapter,
+    saros_amm::SarosAdapter, tessera::TesseraAdapter, zerofi::ZeroFiAdapter, DexAdapter,
 };
 use crate::config::Config;
 use crate::constants::{ATA_PROGRAM_ID, EXECUTOR_PROGRAM_ID, WSOL_MINT};
@@ -48,6 +48,7 @@ pub fn get_adapter(protocol: &str, config: &Config) -> Result<Box<dyn DexAdapter
         "saros" => Box::new(SarosAdapter::new(client)),
         "humidifi" => Box::new(HumidifiAdapter::new(client)),
         "aquifer" => Box::new(AquiferAdapter::new(client)),
+        "zerofi" => Box::new(ZeroFiAdapter::new(client)),
         _ => {
             anyhow::bail!("Unsupported protocol: {}", protocol);
         }

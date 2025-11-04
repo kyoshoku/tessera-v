@@ -97,53 +97,54 @@ impl HumidifiAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
-}
 
-fn parse_humidifi_pool(
-    pool_address: &Pubkey,
-    get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
-) -> Result<Box<dyn PoolData>> {
-    let account = get_account(pool_address)?;
-    let data = &account.data;
+    fn parse_humidifi_pool(
+        &self,
+        pool_address: &Pubkey,
+        get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+    ) -> Result<Box<dyn PoolData>> {
+        let account = get_account(pool_address)?;
+        let data = &account.data;
 
-    let mint_a = Pubkey::from_str("So11111111111111111111111111111111111111112").unwrap();
-    let mint_b = Pubkey::from_str("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB").unwrap();
-    let vault_a = Pubkey::from_str("AzzKL5BpnX9UXfJRyiGbAwyFvw93vwCTBvW56tJebsqd").unwrap();
-    let vault_b = Pubkey::from_str("EmyNiSYtMYZsBCVYpzLwNduQFqCpDGR8qM1h2CoLpWnM").unwrap();
+        let mint_a = Pubkey::from_str("So11111111111111111111111111111111111111112").unwrap();
+        let mint_b = Pubkey::from_str("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB").unwrap();
+        let vault_a = Pubkey::from_str("AzzKL5BpnX9UXfJRyiGbAwyFvw93vwCTBvW56tJebsqd").unwrap();
+        let vault_b = Pubkey::from_str("EmyNiSYtMYZsBCVYpzLwNduQFqCpDGR8qM1h2CoLpWnM").unwrap();
 
-    // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
-    // for i in 0..800 {
-    //     println!("{} - {}", i, u64::from_le_bytes(data[i..i + 8].try_into().unwrap()));
-    // }
+        // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
+        // for i in 0..800 {
+        //     println!("{} - {}", i, u64::from_le_bytes(data[i..i + 8].try_into().unwrap()));
+        // }
 
-    let oracle_price_pico: u64 = u64::from_le_bytes(data[324..332].try_into().unwrap());
-    let oracle_price = oracle_price_pico as f64 / 1e12;
+        let oracle_price_pico: u64 = u64::from_le_bytes(data[324..332].try_into().unwrap());
+        let oracle_price = oracle_price_pico as f64 / 1e12;
 
-    // Get the mintA info
-    let mint_a_account = get_account(&mint_a)?;
-    let token_program_a = mint_a_account.owner;
-    let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
-        .unwrap()
-        .decimals;
+        // Get the mintA info
+        let mint_a_account = get_account(&mint_a)?;
+        let token_program_a = mint_a_account.owner;
+        let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
+            .unwrap()
+            .decimals;
 
-    let mint_b_account = get_account(&mint_b)?;
-    let token_program_b = mint_b_account.owner;
-    let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
-        .unwrap()
-        .decimals;
+        let mint_b_account = get_account(&mint_b)?;
+        let token_program_b = mint_b_account.owner;
+        let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
+            .unwrap()
+            .decimals;
 
-    Ok(Box::new(HumidifiPool {
-        pk: *pool_address,
-        oracle_price,
-        mint_a,
-        mint_b,
-        token_program_a,
-        token_program_b,
-        vault_a,
-        vault_b,
-        decimals_a,
-        decimals_b,
-    }))
+        Ok(Box::new(HumidifiPool {
+            pk: *pool_address,
+            oracle_price,
+            mint_a,
+            mint_b,
+            token_program_a,
+            token_program_b,
+            vault_a,
+            vault_b,
+            decimals_a,
+            decimals_b,
+        }))
+    }
 }
 
 impl DexAdapter for HumidifiAdapter {
@@ -166,12 +167,12 @@ impl DexAdapter for HumidifiAdapter {
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_rpc_getter(&self.client);
-        parse_humidifi_pool(pool_address, &mut get_account)
+        self.parse_humidifi_pool(pool_address, &mut get_account)
     }
 
     fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_svm_getter(svm);
-        parse_humidifi_pool(pool_address, &mut get_account)
+        self.parse_humidifi_pool(pool_address, &mut get_account)
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {

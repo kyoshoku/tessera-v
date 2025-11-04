@@ -41,4 +41,9 @@ pub const AQUIFER_PROGRAM_ID: Pubkey = pubkey!("AQU1FRd7papthgdrwPTTq5JacJh8YtwE
 pub const AQUIFER_POOL_STATE: Pubkey = pubkey!("CNC5TaeNQEoSPfQKZ7GgfM4R8WYAJRKRSHFCHkf2H7ko");
 pub const AQUIFER_POOL_AUTHORITY: Pubkey = pubkey!("5AVyF6qJBi8GxVjh6nh4Ew1DiJZugPxz9m58a8v2osk2");
 
+/// ZeroFi values
+pub const ZEROFI_SWAP_SELECTOR: [u8; 1] = [0x6];
+pub const ZEROFI_PROGRAM_ID: Pubkey = pubkey!("ZERor4xhbUycZ6gb9ntrhqscUcZmAbQDjEAtCf4hbZY");
+pub const ZEROFI_PROGRAM_PATH: &str = "data/zerofi.so";
+
 pub const WSOL_MINT: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
