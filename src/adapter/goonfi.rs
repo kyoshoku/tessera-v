@@ -44,6 +44,7 @@ pub struct GoonfiPool {
 
 impl PoolData for GoonfiPool {
     fn display(&self) {
+        println!("Pool: {}", self.pk);
         println!("Mint A: {}", self.mint_a);
         println!("Mint B: {}", self.mint_b);
         println!("Vault A: {}", self.vault_a);
@@ -81,6 +82,14 @@ impl PoolData for GoonfiPool {
 
     fn get_vault_b(&self) -> Pubkey {
         self.vault_b
+    }
+
+    fn get_token_program_a(&self) -> Pubkey {
+        self.token_program_a
+    }
+
+    fn get_token_program_b(&self) -> Pubkey {
+        self.token_program_b
     }
 }
 

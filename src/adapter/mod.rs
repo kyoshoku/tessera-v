@@ -48,11 +48,13 @@ pub trait PoolData: Any {
     fn get_mint_a(&self) -> Pubkey;
     fn get_decimals_a(&self) -> u8;
     fn get_vault_a(&self) -> Pubkey;
+    fn get_token_program_a(&self) -> Pubkey;
 
     /// Get mint B
     fn get_mint_b(&self) -> Pubkey;
     fn get_decimals_b(&self) -> u8;
     fn get_vault_b(&self) -> Pubkey;
+    fn get_token_program_b(&self) -> Pubkey;
 
     /// Get oracle price
     fn get_oracle_price(&self) -> f64;

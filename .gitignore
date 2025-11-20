@@ -95,3 +95,6 @@ temp/
 
 data/
 simulation/
+
+*.json
+*.csv

@@ -3,20 +3,13 @@ use crate::{
     constants::{
         AQUIFER_POOL_AUTHORITY, AQUIFER_POOL_STATE, AQUIFER_PROGRAM_ID, AQUIFER_SWAP_SELECTOR,
     },
-    utils::get_ata,
+    utils::{get_ata, get_pma_with_filter},
 };
 use anyhow::Result;
 use litesvm::LiteSVM;
-use solana_account_decoder::UiAccountEncoding;
-use solana_client::{
-    rpc_client::RpcClient,
-    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
-    rpc_filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType},
-};
+use solana_client::rpc_client::RpcClient;
 use solana_program::program_pack::Pack;
-use solana_program::pubkey;
 use solana_sdk::{
-    commitment_config::CommitmentConfig,
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
@@ -63,6 +56,7 @@ pub struct AquiferPool {
 
 impl PoolData for AquiferPool {
     fn display(&self) {
+        println!("Pool: {}", self.pk);
         println!("Mint A: {}", self.mint_a);
         println!("Mint B: {}", self.mint_b);
         println!("Vault A: {}", self.vault_a);
@@ -100,6 +94,14 @@ impl PoolData for AquiferPool {
 
     fn get_vault_b(&self) -> Pubkey {
         self.vault_b
+    }
+
+    fn get_token_program_a(&self) -> Pubkey {
+        self.token_program_a
+    }
+
+    fn get_token_program_b(&self) -> Pubkey {
+        self.token_program_b
     }
 }
 
@@ -160,25 +162,8 @@ impl AquiferAdapter {
     }
 
     pub fn get_vault_info(&self, mint: Pubkey) -> Result<VaultInfo> {
-        let config = RpcProgramAccountsConfig {
-            filters: Some(vec![
-                RpcFilterType::DataSize(1056),
-                RpcFilterType::Memcmp(Memcmp::new(
-                    952,
-                    MemcmpEncodedBytes::Base58(mint.to_string()),
-                )),
-            ]),
-            account_config: RpcAccountInfoConfig {
-                encoding: Some(UiAccountEncoding::Base64),
-                commitment: Some(CommitmentConfig::finalized()),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let accounts = self
-            .client
-            .get_program_accounts_with_config(&AQUIFER_PROGRAM_ID, config)?;
+        let accounts =
+            get_pma_with_filter(&self.client, &AQUIFER_PROGRAM_ID, 1056, vec![(952, mint)])?;
         if accounts.is_empty() {
             anyhow::bail!("No vault info found for mint: {}", mint);
         }
@@ -225,21 +210,7 @@ impl DexAdapter for AquiferAdapter {
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        let config = RpcProgramAccountsConfig {
-            filters: Some(vec![RpcFilterType::DataSize(1056)]),
-            account_config: RpcAccountInfoConfig {
-                encoding: Some(UiAccountEncoding::Base64),
-                commitment: Some(CommitmentConfig::finalized()),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let accounts = self
-            .client
-            .get_program_accounts_with_config(&AQUIFER_PROGRAM_ID, config)?;
-
-        // Extract just the pubkeys
+        let accounts = get_pma_with_filter(&self.client, &self.get_program_id(), 1056, vec![])?;
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
 
         Ok(pubkeys)

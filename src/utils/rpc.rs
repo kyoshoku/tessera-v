@@ -1,13 +1,15 @@
 use anyhow::Result;
 use litesvm::LiteSVM;
 use sha2::{Digest, Sha256};
+use solana_account::Account;
+use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_client::RpcClient;
-use solana_program::system_instruction::transfer;
+use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
+use solana_client::rpc_filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType};
+use solana_commitment_config::CommitmentConfig;
 use solana_pubkey as alt_pubkey;
-use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use spl_associated_token_account::instruction::create_associated_token_account_idempotent;
-use spl_token::instruction::{close_account, sync_native};
+
 use std::str::FromStr;
 
 use crate::adapter::aquifer::AquiferAdapter;
@@ -16,7 +18,7 @@ use crate::adapter::{
     saros_amm::SarosAdapter, tessera::TesseraAdapter, zerofi::ZeroFiAdapter, DexAdapter,
 };
 use crate::config::Config;
-use crate::constants::{ATA_PROGRAM_ID, EXECUTOR_PROGRAM_ID, WSOL_MINT};
+use crate::constants::ATA_PROGRAM_ID;
 
 /// Helper function to get Pubkey from string constant
 pub fn get_pubkey_from_str(s: &str) -> Result<Pubkey, solana_sdk::pubkey::ParsePubkeyError> {
@@ -57,60 +59,6 @@ pub fn get_adapter(protocol: &str, config: &Config) -> Result<Box<dyn DexAdapter
     Ok(adapter)
 }
 
-pub fn build_wrap_sol_instruction(user: &Pubkey, ata: &Pubkey, lamports: u64) -> Vec<Instruction> {
-    let mut ixs = vec![];
-
-    ixs.push(create_associated_token_account_idempotent(
-        user,
-        user,
-        &WSOL_MINT,
-        &spl_token::ID,
-    ));
-    if lamports > 0 {
-        ixs.push(transfer(user, ata, lamports));
-    }
-    ixs.push(sync_native(&spl_token::ID, ata).unwrap());
-    ixs
-}
-
-pub fn build_unwrap_sol_instruction(user: &Pubkey, ata: &Pubkey) -> Vec<Instruction> {
-    let mut ixs = vec![];
-
-    ixs.push(close_account(&spl_token::ID, ata, user, user, &[user]).unwrap());
-    ixs
-}
-
-pub fn build_executor_instruction(signer: Pubkey, ix: Instruction) -> Instruction {
-    // Extend executor ix data
-    let mut data = get_anchor_discriminator("global:execute_swap");
-    data.extend_from_slice(&ix.data);
-
-    let mut accounts = vec![];
-    accounts.push(AccountMeta {
-        pubkey: signer,
-        is_signer: true,
-        is_writable: true,
-    });
-    accounts.push(AccountMeta {
-        pubkey: ix.program_id,
-        is_signer: false,
-        is_writable: false,
-    });
-    accounts.push(AccountMeta {
-        pubkey: solana_sdk::sysvar::instructions::ID,
-        is_signer: false,
-        is_writable: false,
-    });
-
-    accounts.extend(ix.accounts);
-
-    Instruction {
-        program_id: EXECUTOR_PROGRAM_ID,
-        accounts,
-        data,
-    }
-}
-
 #[derive(Clone)]
 pub struct MiniAccount {
     pub data: Vec<u8>,
@@ -140,4 +88,32 @@ pub fn make_svm_getter<'a>(svm: &'a LiteSVM) -> impl FnMut(&Pubkey) -> Result<Mi
             owner: acc.owner,
         })
     }
+}
+
+pub fn get_pma_with_filter(
+    client: &RpcClient,
+    program_id: &Pubkey,
+    size: u64,
+    memcmps: Vec<(usize, Pubkey)>,
+) -> Result<Vec<(Pubkey, Account)>> {
+    let mut filters = vec![RpcFilterType::DataSize(size)];
+    for (offset, mint) in memcmps {
+        filters.push(RpcFilterType::Memcmp(Memcmp::new(
+            offset,
+            MemcmpEncodedBytes::Base58(mint.to_string()),
+        )));
+    }
+
+    let config = RpcProgramAccountsConfig {
+        filters: Some(filters),
+        account_config: RpcAccountInfoConfig {
+            encoding: Some(UiAccountEncoding::Base64),
+            commitment: Some(CommitmentConfig::finalized()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let accounts = client.get_program_accounts_with_config(program_id, config)?;
+    Ok(accounts)
 }

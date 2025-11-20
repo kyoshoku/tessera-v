@@ -1,20 +1,14 @@
 use crate::{
     config::Config,
     constants::{ALPHAQ_PROGRAM_ID, ALPHAQ_SWAP_SELECTOR},
-    utils::get_ata,
+    utils::{get_ata, get_pma_with_filter, get_token_decimals},
 };
 use anyhow::Result;
 use litesvm::LiteSVM;
-use solana_account_decoder::UiAccountEncoding;
-use solana_client::{
-    rpc_client::RpcClient,
-    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
-    rpc_filter::RpcFilterType,
-};
+use solana_client::rpc_client::RpcClient;
 use solana_program::program_pack::Pack;
 use solana_program::pubkey;
 use solana_sdk::{
-    commitment_config::CommitmentConfig,
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
@@ -23,7 +17,7 @@ use std::any::Any;
 
 use super::{DexAdapter, PoolData};
 
-use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
+use crate::utils::{build_executor_instruction, make_rpc_getter, make_svm_getter, MiniAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Common swap parameters
@@ -47,6 +41,7 @@ pub struct AlphaqPool {
     pub decimals_a: u8,
     pub decimals_b: u8,
 
+    pub market_state: Pubkey,
     pub vendor_authority: Pubkey,
     pub token_a_authority: Pubkey,
     pub token_b_authority: Pubkey,
@@ -54,6 +49,7 @@ pub struct AlphaqPool {
 
 impl PoolData for AlphaqPool {
     fn display(&self) {
+        println!("Pool: {}", self.pk);
         println!("Mint A: {}", self.mint_a);
         println!("Mint B: {}", self.mint_b);
         println!("Vault A: {}", self.vault_a);
@@ -92,6 +88,14 @@ impl PoolData for AlphaqPool {
     fn get_vault_b(&self) -> Pubkey {
         self.vault_b
     }
+
+    fn get_token_program_a(&self) -> Pubkey {
+        self.token_program_a
+    }
+
+    fn get_token_program_b(&self) -> Pubkey {
+        self.token_program_b
+    }
 }
 
 pub struct AlphaqAdapter {
@@ -129,18 +133,17 @@ impl AlphaqAdapter {
         // Get the mintA/B info
         let mint_a_account = get_account(&mint_a)?;
         let token_program_a = mint_a_account.owner;
-        let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
-            .unwrap()
-            .decimals;
+        let decimals_a = get_token_decimals(&mint_a_account.data)?;
 
         let mint_b_account = get_account(&mint_b)?;
         let token_program_b = mint_b_account.owner;
-        let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
-            .unwrap()
-            .decimals;
+        let decimals_b = get_token_decimals(&mint_b_account.data)?;
+
+        let market_state = self.get_market_state(&pool_address);
 
         Ok(Box::new(AlphaqPool {
             pk: *pool_address,
+            market_state,
             oracle_price,
             mint_a,
             mint_b,
@@ -154,6 +157,45 @@ impl AlphaqAdapter {
             token_program_a,
             token_program_b,
         }))
+    }
+
+    fn get_market_state(&self, pool: &Pubkey) -> Pubkey {
+        match pool.to_string().as_str() {
+            "Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm" => {
+                pubkey!("445fd6ffBZqWYsryCgs6wcE8exaLkRsMrefAQ5UHvt8v")
+            }
+            "9xPhpwq6GLUkrDBNfXCbnSP9ARAMMyUQqgkrqaDW6NLV" => {
+                pubkey!("H18xqLYd5uEenmiFKoXkgrTvyhnLgJMPT8sSvdZPpi3p")
+            }
+            "6R3LknvRLwPg7c8Cww7LKqBHRDcGioPoj29uURX9anug" => {
+                pubkey!("HjRw8yeBVUCGHMUWZzF83U4x82KwsrVwaeh6CYxtGBsQ")
+            }
+            "hKH9LFREBm3TxTx5Ex6D1nHTKEA8ii3CWfhEkB9s21u" => {
+                pubkey!("HZyb7Gv2pWTRYq8XuaeWBePQ8CDNhxigkNohZU2dLPEC")
+            }
+            "2YR8bXXn4tTnq8nVjvpYnBiQ7ZKjN3G16wxE8ShL3KaB" => {
+                pubkey!("aXQtJ9cGr1zgLyrppKJ5BR5jv1RMjyYL5Wetd2KZNtB")
+            }
+            "2o4369ha3bENAhJDan8mdRNJjNo6qQ9P5KhUS4QZUVgi" => {
+                pubkey!("BLtETTx81aLGdXVmqsaRBNFG6sraxK76CE55NPLW8ja4")
+            }
+            "5jsvKL6eKPGUAMBYcoNn9FaKwD1i9o44YeNtEEedkmeq" => {
+                pubkey!("85aqCUSm4eMv5EbRErC5VD3wuSFb43H5KJuniyAYjE5P")
+            }
+            "61LMyNZudQFDNMRFKwkBmf5HtRf1vU8B8FgNYdrha3fq" => {
+                pubkey!("FGRoxhDzPmY3ggRZqZsBTn6aLcrAePmNwH5GXLE6cok5")
+            }
+            "C2GdMFGp2vSZHnU76pH2ukEWxuhoJBuaA54Ftzcvv4z5" => {
+                pubkey!("CyNXfwYg6kUDh4ExsHMBpiYuDoxrNxcBgLWqseBMjq9y")
+            }
+            "F97Kntcg8pZrCDa9csKHPNuAtGrtzqG3RBr6UdJCz8NP" => {
+                pubkey!("6MyAAUujZvo2hzHpttnqE1Zn7SWi4xrr1wJfxJLGSkqC")
+            }
+            "FVz9gveEdRw2fqkZFLCXxpZErS4mBQvwKwQeForLUyW6" => {
+                pubkey!("9gXvza14Bp6kBDdd5rWowt7NssYy36eSNvV7MzpWzLF3")
+            }
+            _ => Pubkey::default(),
+        }
     }
 }
 
@@ -186,23 +228,8 @@ impl DexAdapter for AlphaqAdapter {
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        let config = RpcProgramAccountsConfig {
-            filters: Some(vec![RpcFilterType::DataSize(672)]),
-            account_config: RpcAccountInfoConfig {
-                encoding: Some(UiAccountEncoding::Base64),
-                commitment: Some(CommitmentConfig::finalized()),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let accounts = self
-            .client
-            .get_program_accounts_with_config(&ALPHAQ_PROGRAM_ID, config)?;
-
-        // Extract just the pubkeys
+        let accounts = get_pma_with_filter(&self.client, &self.get_program_id(), 672, vec![])?;
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
-
         Ok(pubkeys)
     }
 
@@ -233,12 +260,10 @@ impl DexAdapter for AlphaqAdapter {
         let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
         let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
 
-        let market_state = pubkey!("HZyb7Gv2pWTRYq8XuaeWBePQ8CDNhxigkNohZU2dLPEC");
-
-        let accounts = vec![
+        let mut accounts = vec![
             AccountMeta::new(*user, true), // signer
             AccountMeta::new_readonly(pool.pk, false),
-            AccountMeta::new(market_state, false),
+            AccountMeta::new(pool.market_state, false),
             AccountMeta::new(user_ata_a, false),
             AccountMeta::new(user_ata_b, false),
             AccountMeta::new(pool.vault_a, false),
@@ -250,10 +275,18 @@ impl DexAdapter for AlphaqAdapter {
             AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
         ];
 
-        Ok(vec![Instruction {
+        if pool.token_program_a != spl_token::ID {
+            accounts.push(AccountMeta::new_readonly(pool.mint_a, false));
+            accounts.push(AccountMeta::new_readonly(pool.token_program_a, false));
+        }
+
+        let swap_ix = Instruction {
             program_id: ALPHAQ_PROGRAM_ID,
             accounts,
             data,
-        }])
+        };
+        // let executor_ix = build_executor_instruction(*user, swap_ix);
+
+        Ok(vec![swap_ix])
     }
 }

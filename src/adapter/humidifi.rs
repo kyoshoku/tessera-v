@@ -1,4 +1,4 @@
-use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
+use crate::utils::{get_pma_with_filter, make_rpc_getter, make_svm_getter, MiniAccount};
 use crate::{
     config::Config,
     constants::{HUMIDIFI_PROGRAM_ID, HUMIDIFI_SWAP_SELECTOR},
@@ -6,11 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use litesvm::LiteSVM;
-use solana_account_decoder::UiAccountEncoding;
 use solana_client::rpc_client::RpcClient;
-use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
-use solana_client::rpc_filter::RpcFilterType;
-use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::program_pack::Pack;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -49,6 +45,7 @@ pub struct HumidifiPool {
 
 impl PoolData for HumidifiPool {
     fn display(&self) {
+        println!("Pool: {}", self.pk);
         println!("Mint A: {}", self.mint_a);
         println!("Mint B: {}", self.mint_b);
         println!("Vault A: {}", self.vault_a);
@@ -86,6 +83,14 @@ impl PoolData for HumidifiPool {
 
     fn get_vault_b(&self) -> Pubkey {
         self.vault_b
+    }
+
+    fn get_token_program_a(&self) -> Pubkey {
+        self.token_program_a
+    }
+
+    fn get_token_program_b(&self) -> Pubkey {
+        self.token_program_b
     }
 }
 
@@ -176,23 +181,8 @@ impl DexAdapter for HumidifiAdapter {
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        let config = RpcProgramAccountsConfig {
-            filters: Some(vec![RpcFilterType::DataSize(1728)]),
-            account_config: RpcAccountInfoConfig {
-                encoding: Some(UiAccountEncoding::Base64),
-                commitment: Some(CommitmentConfig::finalized()),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let accounts = self
-            .client
-            .get_program_accounts_with_config(&self.get_program_id(), config)?;
-
-        // Extract just the pubkeys
+        let accounts = get_pma_with_filter(&self.client, &self.get_program_id(), 1728, vec![])?;
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
-
         Ok(pubkeys)
     }
 

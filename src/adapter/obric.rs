@@ -1,4 +1,4 @@
-use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
+use crate::utils::{get_pma_with_filter, make_rpc_getter, make_svm_getter, MiniAccount};
 use crate::{
     config::Config,
     constants::{OBRIC_PROGRAM_ID, OBRIC_SWAP_SELECTOR},
@@ -50,8 +50,11 @@ pub struct ObricPool {
 
 impl PoolData for ObricPool {
     fn display(&self) {
+        println!("Pool: {}", self.pk);
         println!("Mint A: {}", self.mint_a);
         println!("Mint B: {}", self.mint_b);
+        println!("Vault A: {}", self.vault_a);
+        println!("Vault B: {}", self.vault_b);
         println!("Oracle Price: ${:.4}", self.oracle_price);
     }
 
@@ -85,6 +88,14 @@ impl PoolData for ObricPool {
 
     fn get_vault_b(&self) -> Pubkey {
         self.vault_b
+    }
+
+    fn get_token_program_a(&self) -> Pubkey {
+        self.token_program_a
+    }
+
+    fn get_token_program_b(&self) -> Pubkey {
+        self.token_program_b
     }
 }
 
@@ -158,20 +169,38 @@ impl ObricAdapter {
             mint_sslp_y,
         }))
     }
+
+    pub fn get_pool_address(&self, input_mint: &Pubkey, output_mint: &Pubkey) -> Result<Pubkey> {
+        let mut accounts = get_pma_with_filter(
+            &self.client,
+            &self.get_program_id(),
+            666,
+            vec![(234, *input_mint), (202, *output_mint)],
+        )?;
+        if accounts.is_empty() {
+            accounts = get_pma_with_filter(
+                &self.client,
+                &self.get_program_id(),
+                666,
+                vec![(234, *output_mint), (202, *input_mint)],
+            )?;
+            if accounts.is_empty() {
+                anyhow::bail!(
+                    "No pool address found for input mint: {} and output mint: {}",
+                    input_mint,
+                    output_mint
+                );
+            }
+        }
+
+        let (pubkey, _) = &accounts[0];
+        Ok(*pubkey)
+    }
 }
 
 impl DexAdapter for ObricAdapter {
     fn get_program_id(&self) -> Pubkey {
         OBRIC_PROGRAM_ID
-    }
-
-    fn fetch_pair_data(
-        &self,
-        input_mint: &Pubkey,
-        output_mint: &Pubkey,
-        _config: &Config,
-    ) -> Result<Box<dyn PoolData>> {
-        anyhow::bail!("Not implemented");
     }
 
     fn fetch_pool_data(
@@ -188,13 +217,20 @@ impl DexAdapter for ObricAdapter {
         self.parse_obric_pool(pool_address, &mut get_account)
     }
 
+    fn fetch_pair_data(
+        &self,
+        input_mint: &Pubkey,
+        output_mint: &Pubkey,
+        _config: &Config,
+    ) -> Result<Box<dyn PoolData>> {
+        let mut get_account = make_rpc_getter(&self.client);
+        let pool_address = self.get_pool_address(input_mint, output_mint)?;
+        self.parse_obric_pool(&pool_address, &mut get_account)
+    }
+
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        // Get all accounts owned by the Obric program
-        let accounts = self.client.get_program_accounts(&OBRIC_PROGRAM_ID)?;
-
-        // Extract just the pubkeys
+        let accounts = get_pma_with_filter(&self.client, &self.get_program_id(), 666, vec![])?;
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
-
         Ok(pubkeys)
     }
 
@@ -233,17 +269,22 @@ impl DexAdapter for ObricAdapter {
             AccountMeta::new(pool.vault_b, false),
             AccountMeta::new(user_ata_a, false),
             AccountMeta::new(user_ata_b, false),
-            AccountMeta::new_readonly(pool.protocol_fee_x, false),
+            AccountMeta::new(pool.protocol_fee_x, false),
             AccountMeta::new_readonly(pool.price_feed_x, false),
             AccountMeta::new_readonly(pool.price_feed_y, false),
             AccountMeta::new(*user, true), // signer
             AccountMeta::new_readonly(spl_token::ID, false),
         ];
+        // for account in accounts.iter() {
+        //     println!("Account: {:?}", account.pubkey);
+        // }
 
-        Ok(vec![Instruction {
+        let swap_ix = Instruction {
             program_id: OBRIC_PROGRAM_ID,
             accounts,
             data,
-        }])
+        };
+
+        Ok(vec![swap_ix])
     }
 }

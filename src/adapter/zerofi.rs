@@ -1,20 +1,13 @@
 use crate::{
     config::Config,
     constants::{ZEROFI_PROGRAM_ID, ZEROFI_SWAP_SELECTOR},
-    utils::{build_executor_instruction, get_ata},
+    utils::{get_ata, get_pma_with_filter},
 };
 use anyhow::Result;
 use litesvm::LiteSVM;
-use solana_account_decoder::UiAccountEncoding;
-use solana_client::{
-    rpc_client::RpcClient,
-    rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
-    rpc_filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType},
-};
+use solana_client::rpc_client::RpcClient;
 use solana_program::program_pack::Pack;
-use solana_program::pubkey;
 use solana_sdk::{
-    commitment_config::CommitmentConfig,
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
@@ -61,6 +54,7 @@ pub struct ZeroFiPool {
 
 impl PoolData for ZeroFiPool {
     fn display(&self) {
+        println!("Pool: {}", self.pk);
         println!("Mint A: {}", self.mint_a);
         println!("Mint B: {}", self.mint_b);
         println!("Vault A: {}", self.vault_a);
@@ -99,6 +93,14 @@ impl PoolData for ZeroFiPool {
     fn get_vault_b(&self) -> Pubkey {
         self.vault_b
     }
+
+    fn get_token_program_a(&self) -> Pubkey {
+        self.token_program_a
+    }
+
+    fn get_token_program_b(&self) -> Pubkey {
+        self.token_program_b
+    }
 }
 
 pub struct ZeroFiAdapter {
@@ -117,8 +119,8 @@ impl ZeroFiAdapter {
         pool_address: &Pubkey,
         get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
     ) -> Result<Box<dyn PoolData>> {
-        let account = get_account(pool_address)?;
-        let data = &account.data;
+        let pool_account = get_account(pool_address)?;
+        let data = &pool_account.data;
 
         let update_authority_a = Pubkey::new_from_array((&data[8..40]).try_into().unwrap());
         let update_authority_b = Pubkey::new_from_array((&data[40..72]).try_into().unwrap());
@@ -144,13 +146,17 @@ impl ZeroFiAdapter {
             .unwrap()
             .decimals;
 
+        println!("Vault account: {}", vault_a_state);
+        let vault_account = get_account(&vault_a_state)?;
+        let data = &vault_account.data;
+
         // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
-        // for i in 0..data.len() - 8 {
-        //     let val = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
-        //     if val.to_string().starts_with("158") {
-        //         println!("{} - {}", i, val as f64 / 1e6);
-        //     }
-        // }
+        for i in 182..816 {
+            let val = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
+            if val.to_string().starts_with("33") {
+                println!("{} - {}", i, val as f64);
+            }
+        }
 
         Ok(Box::new(ZeroFiPool {
             pk: *pool_address,
@@ -171,53 +177,18 @@ impl ZeroFiAdapter {
     }
 
     pub fn get_pool_address(&self, input_mint: &Pubkey, output_mint: &Pubkey) -> Result<Pubkey> {
-        let filter_a_to_b = vec![
-            RpcFilterType::DataSize(7456),
-            RpcFilterType::Memcmp(Memcmp::new(
-                72,
-                MemcmpEncodedBytes::Base58(input_mint.to_string()),
-            )),
-            RpcFilterType::Memcmp(Memcmp::new(
-                104,
-                MemcmpEncodedBytes::Base58(output_mint.to_string()),
-            )),
-        ];
-        let filter_b_to_a = vec![
-            RpcFilterType::DataSize(7456),
-            RpcFilterType::Memcmp(Memcmp::new(
-                72,
-                MemcmpEncodedBytes::Base58(output_mint.to_string()),
-            )),
-            RpcFilterType::Memcmp(Memcmp::new(
-                104,
-                MemcmpEncodedBytes::Base58(input_mint.to_string()),
-            )),
-        ];
-
-        let accounts = self.client.get_program_accounts_with_config(
-            &ZEROFI_PROGRAM_ID,
-            RpcProgramAccountsConfig {
-                filters: Some(filter_a_to_b),
-                account_config: RpcAccountInfoConfig {
-                    encoding: Some(UiAccountEncoding::Base64),
-                    commitment: Some(CommitmentConfig::finalized()),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
+        let mut accounts = get_pma_with_filter(
+            &self.client,
+            &self.get_program_id(),
+            7456,
+            vec![(72, *input_mint), (104, *output_mint)],
         )?;
         if accounts.is_empty() {
-            let accounts = self.client.get_program_accounts_with_config(
-                &ZEROFI_PROGRAM_ID,
-                RpcProgramAccountsConfig {
-                    filters: Some(filter_b_to_a),
-                    account_config: RpcAccountInfoConfig {
-                        encoding: Some(UiAccountEncoding::Base64),
-                        commitment: Some(CommitmentConfig::finalized()),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
+            accounts = get_pma_with_filter(
+                &self.client,
+                &self.get_program_id(),
+                7456,
+                vec![(72, *output_mint), (104, *input_mint)],
             )?;
             if accounts.is_empty() {
                 anyhow::bail!(
@@ -226,13 +197,10 @@ impl ZeroFiAdapter {
                     output_mint
                 );
             }
-
-            let (pubkey, _) = &accounts[0];
-            Ok(*pubkey)
-        } else {
-            let (pubkey, _) = &accounts[0];
-            Ok(*pubkey)
         }
+
+        let (pubkey, _) = &accounts[0];
+        Ok(*pubkey)
     }
 }
 
@@ -267,23 +235,8 @@ impl DexAdapter for ZeroFiAdapter {
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        let config = RpcProgramAccountsConfig {
-            filters: Some(vec![RpcFilterType::DataSize(7456)]),
-            account_config: RpcAccountInfoConfig {
-                encoding: Some(UiAccountEncoding::Base64),
-                commitment: Some(CommitmentConfig::finalized()),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let accounts = self
-            .client
-            .get_program_accounts_with_config(&ZEROFI_PROGRAM_ID, config)?;
-
-        // Extract just the pubkeys
+        let accounts = get_pma_with_filter(&self.client, &self.get_program_id(), 7456, vec![])?;
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
-
         Ok(pubkeys)
     }
 
@@ -341,7 +294,7 @@ impl DexAdapter for ZeroFiAdapter {
             AccountMeta::new(vault_destination, false),
             AccountMeta::new(user_source, false),
             AccountMeta::new(user_destination, false),
-            AccountMeta::new(*user, true), // signer
+            AccountMeta::new_readonly(*user, true), // signer
             AccountMeta::new_readonly(spl_token::ID, false),
             AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
         ];

@@ -5,7 +5,7 @@ use solana_client::{
     rpc_config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig},
 };
 use solana_keypair::Keypair;
-use solana_sdk::{native_token::LAMPORTS_PER_SOL, pubkey::Pubkey};
+use solana_sdk::{clock::Clock, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use std::{collections::HashSet, str::FromStr};
@@ -15,14 +15,13 @@ use tokio::task::JoinSet;
 mod adapter;
 mod config;
 mod constants;
-mod hera;
 mod svm;
 mod swap;
 mod utils;
 
 use crate::{
     svm::{make_ata_account, token_balance},
-    utils::{get_adapter, get_ata},
+    utils::{get_adapter, get_ata, get_token_mint},
 };
 use config::Config;
 
@@ -54,6 +53,9 @@ enum Commands {
         /// Output mint
         #[arg(short, long)]
         output_mint: String,
+        /// Pool address
+        #[arg(short, long)]
+        pool_address: Option<String>,
 
         /// Amount in (in token units)
         #[arg(short, long)]
@@ -70,6 +72,9 @@ enum Commands {
         /// Output mint
         #[arg(short, long)]
         output_mint: String,
+        /// Pool address
+        #[arg(short, long)]
+        pool_address: Option<String>,
 
         /// Amount in (in token units)
         #[arg(short, long)]
@@ -126,6 +131,7 @@ async fn main() -> Result<()> {
         Commands::Simulate {
             input_mint,
             output_mint,
+            pool_address,
             amount_in,
             min_amount_out,
         } => {
@@ -133,6 +139,7 @@ async fn main() -> Result<()> {
                 &args.protocol,
                 input_mint,
                 output_mint,
+                pool_address,
                 amount_in,
                 min_amount_out,
                 &config,
@@ -143,6 +150,7 @@ async fn main() -> Result<()> {
         Commands::Swap {
             input_mint,
             output_mint,
+            pool_address,
             amount_in,
             min_amount_out,
         } => {
@@ -150,6 +158,7 @@ async fn main() -> Result<()> {
                 &args.protocol,
                 input_mint,
                 output_mint,
+                pool_address,
                 amount_in,
                 min_amount_out,
                 &config,
@@ -248,6 +257,13 @@ async fn handle_dump_command(
     addresses.insert(pool_data.get_mint_a());
     addresses.insert(pool_data.get_mint_b());
 
+    // Get all PDAs
+    let rpc_client = RpcClient::new(config.get_rpc_url());
+    let pda_accounts = rpc_client.get_program_accounts(&program_id)?;
+    for pda in pda_accounts {
+        addresses.insert(pda.0);
+    }
+
     svm::dump_pool_accounts(
         addresses.into_iter().collect::<Vec<_>>(),
         config.get_rpc_url(),
@@ -259,22 +275,22 @@ async fn handle_swap_command(
     protocol: &str,
     input_mint: String,
     output_mint: String,
+    pool_address: Option<String>,
     amount_in: u64,
     min_amount_out: u64,
     config: &Config,
     is_simulate: bool,
 ) -> Result<()> {
-    let input_mint = Pubkey::from_str(&input_mint)?;
-    let output_mint = Pubkey::from_str(&output_mint)?;
+    let input_mint = get_token_mint(&input_mint)?;
+    let output_mint = get_token_mint(&output_mint)?;
 
     let adapter = get_adapter(protocol, config)?;
 
-    let pool_data = match adapter.fetch_pair_data(&input_mint, &output_mint, config) {
-        Ok(data) => data,
-        Err(e) => {
-            anyhow::bail!("Error: {}", e);
-        }
+    let pool_data = match pool_address {
+        Some(pool_address) => adapter.fetch_pool_data(&Pubkey::from_str(&pool_address)?, config)?,
+        None => adapter.fetch_pair_data(&input_mint, &output_mint, config)?,
     };
+    pool_data.display();
 
     let a_to_b = pool_data.get_mint_a().eq(&input_mint);
 
@@ -396,19 +412,22 @@ async fn handle_curve_simulate_command(
 
     let mut in_amounts = vec![
         1_000,
-        10_000,
-        100_000,
-        1_000_000,
-        10_000_000,
-        100_000_000,
-        1_000_000_000,
-        10_000_000_000,
-        100_000_000_000,
-        1_000_000_000_000,
-        10_000_000_000_000,
+        // 10_000,
+        // 100_000,
+        // 1_000_000,
+        // 10_000_000,
+        // 100_000_000,
+        // 1_000_000_000,
+        // 10_000_000_000,
+        // 100_000_000_000,
+        // 1_000_000_000_000,
+        // 10_000_000_000_000,
     ];
 
-    let min_amount_out = 0;
+    let min_amount_out = 1;
+
+    // let blockhash = svm.get_sysvar::<solana_sdk::sysvar::instructions::Instructions>();
+    // println!("Blockhash: {}", blockhash);
 
     // Run SVM simulations in parallel; each task owns its own SVM and input
     let mut tasks = JoinSet::new();
@@ -432,18 +451,40 @@ async fn handle_curve_simulate_command(
             svm.airdrop(&user, LAMPORTS_PER_SOL)
                 .map_err(|e| anyhow::anyhow!("Failed to airdrop: {:?}", e))?;
 
-            let user_in_ata = get_ata(&user, &input_token, &spl_token::ID);
-            let user_out_ata = get_ata(&user, &output_token, &spl_token::ID);
-
-            svm.set_account(
-                user_in_ata,
-                make_ata_account(&input_token, &user, in_amount),
-            )?;
-            svm.set_account(user_out_ata, make_ata_account(&output_token, &user, 0))?;
-
             // Build instructions inside the task
             let adapter = get_adapter(&protocol, &config)?;
             let pool_data = adapter.as_ref().load_pool_data(&pool_address, &svm)?;
+
+            let (in_token_program, out_token_program) = if a_to_b {
+                (
+                    pool_data.get_token_program_a(),
+                    pool_data.get_token_program_b(),
+                )
+            } else {
+                (
+                    pool_data.get_token_program_b(),
+                    pool_data.get_token_program_a(),
+                )
+            };
+
+            let user_in_ata = get_ata(&user, &input_token, &in_token_program);
+            make_ata_account(
+                &mut svm,
+                &input_token,
+                &user_keypair,
+                &in_token_program,
+                in_amount,
+            );
+
+            let user_out_ata = get_ata(&user, &output_token, &out_token_program);
+            make_ata_account(
+                &mut svm,
+                &output_token,
+                &user_keypair,
+                &out_token_program,
+                0,
+            );
+
             let ixs = swap::build_simulate_ixs(
                 &adapter,
                 pool_data,
@@ -453,9 +494,23 @@ async fn handle_curve_simulate_command(
                 min_amount_out,
             )?;
 
+            for ix in ixs.iter() {
+                for account in ix.accounts.iter() {
+                    println!("{:?}", account.pubkey);
+                    match svm.get_account(&account.pubkey) {
+                        Some(acc) => {
+                            println!("      Owner: {}", acc.owner.to_string());
+                        }
+                        None => {
+                            println!("      Account not found: {:?}", account.pubkey);
+                        }
+                    }
+                }
+            }
+
             let tx = Transaction::new_with_payer(&ixs, Some(&user));
             let signed_tx = Transaction::new(&[&user_keypair], tx.message, svm.latest_blockhash());
-            svm.send_transaction(signed_tx)
+            svm.simulate_transaction(signed_tx)
                 .map_err(|e| anyhow::anyhow!("send failed: {:?}", e))?;
 
             let out_balance = svm::token_balance(&svm, &user_out_ata);

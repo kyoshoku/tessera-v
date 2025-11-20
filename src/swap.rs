@@ -154,16 +154,6 @@ pub fn build_simulate_ixs(
         pool_data.get_mint_a()
     };
 
-    let output_ata = get_ata(&user, &output_token, &spl_token::ID);
-    if !output_ata.eq(&wsol_ata) {
-        pre_ixs.push(create_associated_token_account_idempotent(
-            &user,
-            &user,
-            &output_token,
-            &spl_token::ID,
-        ));
-    }
-
     let post_ixs = if wrap_sol {
         build_unwrap_sol_instruction(&user, &wsol_ata)
     } else {
