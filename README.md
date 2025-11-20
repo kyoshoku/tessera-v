@@ -30,23 +30,29 @@ cargo run -- read -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
 # Read pool data with specific protocol
 cargo run -- --protocol tessera read -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
 cargo run -- --protocol goonfi read -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46
-cargo run -- --protocol obric read -p 3csCx7o3KCvpXeRZYjhCGrgXdKyjSgaqcirc5pZJUJCf
+cargo run -- --protocol obric read -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ
 cargo run -- --protocol saros read -p 7EFmig3Jb9j1kJ7ppaUs5iY8P5pBnRdQXUR4q9vSCY37
 cargo run -- --protocol alphaq read -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
+cargo run -- --protocol humidifi read -p 3QYYvFWgSuGK8bbxMSAYkCqE8QfSuFtByagnZAuekia2
+cargo run -- --protocol aquifer read -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
+cargo run -- --protocol zerofi read -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB
 
 # Build and submit swap transaction
-cargo run -- swap -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
-cargo run --  --protocol goonfi swap -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
-cargo run --  --protocol obric swap -p 3csCx7o3KCvpXeRZYjhCGrgXdKyjSgaqcirc5pZJUJCf -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
-cargo run --  --protocol saros swap -p 2wUvdZA8ZsY714Y5wUL9fkFmupJGGwzui2N74zqJWgty -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
-cargo run --  --protocol alphaq swap -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
+cargo run -- swap -p BDqQBspbipXxnTX2kw4FPM9pzfcf9kwieGCy4yUZ9tCC -i 1000000 -a 1
+cargo run --  --protocol goonfi swap -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i 1000000 -a 1
+cargo run --  --protocol obric swap -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ -i 1000000 -a 1
+cargo run --  --protocol saros swap -p 2wUvdZA8ZsY714Y5wUL9fkFmupJGGwzui2N74zqJWgty -i 1000000 -a 1
+cargo run --  --protocol alphaq swap -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -i 1000000 -a 1
+cargo run --  --protocol aquifer swap -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i 1000000 -a 1
 
 # Simulate swap transaction (builds and simulates actual transaction)
-cargo run -- simulate -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
-cargo run --  --protocol goonfi simulate -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
-cargo run --  --protocol obric simulate -p 3csCx7o3KCvpXeRZYjhCGrgXdKyjSgaqcirc5pZJUJCf -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
-cargo run --  --protocol saros simulate -p 2wUvdZA8ZsY714Y5wUL9fkFmupJGGwzui2N74zqJWgty -i EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v -a 1000000
-cargo run --  --protocol alphaq simulate -p hKH9LFREBm3TxTx5Ex6D1nHTKEA8ii3CWfhEkB9s21u -i So11111111111111111111111111111111111111112 -a 1000000
+cargo run -- simulate -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n -i 1000000 -a 1
+cargo run --  --protocol goonfi simulate -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i 1000000 -a 1
+cargo run --  --protocol saros simulate -p 2wUvdZA8ZsY714Y5wUL9fkFmupJGGwzui2N74zqJWgty -i 1000000 -a 1
+cargo run --  --protocol aquifer simulate -i SOL -o USDC -a 1000000
+cargo run --  --protocol zerofi simulate -i USDC -o WETH -a 10000
+cargo run --  --protocol alphaq simulate -i USDC -o USDT -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -a 100000
+cargo run --  --protocol obric simulate -i SOL -o USDC -a 10000 -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ 
 
 # List all pool accounts for a protocol
 cargo run -- list --protocol tessera
@@ -54,6 +60,22 @@ cargo run -- list --protocol goonfi
 cargo run -- list --protocol obric
 cargo run -- list --protocol saros
 cargo run -- list --protocol alphaq
+cargo run -- list --protocol aquifer
+cargo run -- list --protocol humidifi
+cargo run -- list --protocol zerofi
+
+
+# Dump accounts for protocol
+cargo run -- -p zerofi dump -p AWVGmTvNCGiqHFzjmBe4pLkkWm3he7aB8FeNqqfUSVXx
+cargo run -- -p obric dump -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ
+cargo run -- -p alphaq dump -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
+
+export LITELLM_LOG="DEBUG"
+
+cargo run -- -p tessera curve-simulate -p BDqQBspbipXxnTX2kw4FPM9pzfcf9kwieGCy4yUZ9tCC -a 1
+cargo run -- -p zerofi curve-simulate -p AWVGmTvNCGiqHFzjmBe4pLkkWm3he7aB8FeNqqfUSVXx -a 1
+cargo run -- -p obric curve-simulate -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ -a 1
+cargo run -- -p alphaq curve-simulate -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -a 1
 
 ```
 

@@ -91,3 +91,10 @@ node_modules/
 # Temporary folders
 tmp/
 temp/
+
+
+data/
+simulation/
+
+*.json
+*.csv

@@ -23,7 +23,7 @@ impl Config {
         &self.rpc_url
     }
     pub fn get_payer(&self) -> Result<Keypair> {
-        let payer = Keypair::from_bytes(&bs58::decode(&self.payer_pk).into_vec()?)?;
+        let payer = Keypair::from_base58_string(&self.payer_pk);
         Ok(payer)
     }
 }

@@ -1,15 +1,14 @@
-use crate::utils::{get_pma_with_filter, make_rpc_getter, make_svm_getter, MiniAccount};
 use crate::{
     config::Config,
-    constants::{OBRIC_PROGRAM_ID, OBRIC_SWAP_SELECTOR},
-    utils::get_ata,
+    constants::{ZEROFI_PROGRAM_ID, ZEROFI_SWAP_SELECTOR},
+    utils::{get_ata, get_pma_with_filter},
 };
 use anyhow::Result;
 use litesvm::LiteSVM;
 use solana_client::rpc_client::RpcClient;
+use solana_program::program_pack::Pack;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
-    program_pack::Pack,
     pubkey::Pubkey,
 };
 use spl_token::state::Mint;
@@ -17,18 +16,25 @@ use std::any::Any;
 
 use super::{DexAdapter, PoolData};
 
+use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Common swap parameters
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct SwapParams {
-    pub x_to_y: bool,
-    pub amount_in: u64,
-    pub min_amount_out: u64,
+    pub amount_in: u64,      // Input amount
+    pub min_amount_out: u64, // Minimum output amount (slippage protection)
 }
 
 #[derive(Debug, Clone)]
-pub struct ObricPool {
+pub struct VaultInfo {
+    pub address: Pubkey,
+    pub ata: Pubkey,
+    pub oracle: Pubkey,
+}
+
+#[derive(Debug, Clone)]
+pub struct ZeroFiPool {
     pub pk: Pubkey,
     pub mint_a: Pubkey,
     pub mint_b: Pubkey,
@@ -36,19 +42,17 @@ pub struct ObricPool {
     pub vault_b: Pubkey,
     pub token_program_a: Pubkey,
     pub token_program_b: Pubkey,
-    pub oracle_price: f64, // in USD
+    pub update_authority_a: Pubkey,
+    pub update_authority_b: Pubkey,
     pub decimals_a: u8,
     pub decimals_b: u8,
+    pub oracle_price: f64, // in USD
 
-    pub price_feed_x: Pubkey,
-    pub price_feed_y: Pubkey,
-    pub protocol_fee_x: Pubkey,
-    pub protocol_fee_y: Pubkey,
-    pub mint_sslp_x: Pubkey,
-    pub mint_sslp_y: Pubkey,
+    pub vault_a_state: Pubkey,
+    pub vault_b_state: Pubkey,
 }
 
-impl PoolData for ObricPool {
+impl PoolData for ZeroFiPool {
     fn display(&self) {
         println!("Pool: {}", self.pk);
         println!("Mint A: {}", self.mint_a);
@@ -70,16 +74,16 @@ impl PoolData for ObricPool {
         self.mint_b
     }
 
-    fn get_oracle_price(&self) -> f64 {
-        self.oracle_price
-    }
-
     fn get_decimals_a(&self) -> u8 {
         self.decimals_a
     }
 
     fn get_decimals_b(&self) -> u8 {
         self.decimals_b
+    }
+
+    fn get_oracle_price(&self) -> f64 {
+        self.oracle_price
     }
 
     fn get_vault_a(&self) -> Pubkey {
@@ -99,74 +103,76 @@ impl PoolData for ObricPool {
     }
 }
 
-pub struct ObricAdapter {
+pub struct ZeroFiAdapter {
     client: RpcClient,
 }
 
-impl ObricAdapter {
+impl ZeroFiAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
+}
 
-    fn parse_obric_pool(
+impl ZeroFiAdapter {
+    fn parse_zerofi_pool(
         &self,
         pool_address: &Pubkey,
         get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
     ) -> Result<Box<dyn PoolData>> {
-        let account = get_account(pool_address)?;
-        let data = &account.data;
+        let pool_account = get_account(pool_address)?;
+        let data = &pool_account.data;
 
-        let price_feed_x = Pubkey::new_from_array((&data[9..41]).try_into().unwrap());
-        let price_feed_y = Pubkey::new_from_array((&data[41..73]).try_into().unwrap());
+        let update_authority_a = Pubkey::new_from_array((&data[8..40]).try_into().unwrap());
+        let update_authority_b = Pubkey::new_from_array((&data[40..72]).try_into().unwrap());
 
-        let vault_a = Pubkey::new_from_array((&data[73..105]).try_into().unwrap());
-        let vault_b = Pubkey::new_from_array((&data[105..137]).try_into().unwrap());
+        let mint_a = Pubkey::new_from_array((&data[72..104]).try_into().unwrap());
+        let mint_b = Pubkey::new_from_array((&data[104..136]).try_into().unwrap());
 
-        let protocol_fee_x = Pubkey::new_from_array((&data[137..169]).try_into().unwrap());
-        let protocol_fee_y = Pubkey::new_from_array((&data[169..201]).try_into().unwrap());
+        let vault_a = Pubkey::new_from_array((&data[136..168]).try_into().unwrap());
+        let vault_a_state = Pubkey::new_from_array((&data[168..200]).try_into().unwrap());
 
-        let mint_a = Pubkey::new_from_array((&data[202..234]).try_into().unwrap());
-        let mint_b = Pubkey::new_from_array((&data[234..266]).try_into().unwrap());
+        let vault_b = Pubkey::new_from_array((&data[200..232]).try_into().unwrap());
+        let vault_b_state = Pubkey::new_from_array((&data[232..264]).try_into().unwrap());
 
-        let mint_sslp_x = Pubkey::new_from_array((&data[482..514]).try_into().unwrap());
-        let mint_sslp_y = Pubkey::new_from_array((&data[514..546]).try_into().unwrap());
-
-        // Get the mintA info
         let mint_a_account = get_account(&mint_a)?;
-        let mint_a_decimals = Mint::unpack_unchecked(&mint_a_account.data)
+        let token_program_a = mint_a_account.owner;
+        let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
             .unwrap()
             .decimals;
-        let token_program_a = mint_a_account.owner;
 
         let mint_b_account = get_account(&mint_b)?;
-        let mint_b_decimals = Mint::unpack_unchecked(&mint_b_account.data)
+        let token_program_b = mint_b_account.owner;
+        let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
             .unwrap()
             .decimals;
-        let token_program_b = mint_b_account.owner;
 
-        // Oracle Price @ byte 128 (8 bytes, u64 in pico-USDC)
-        let oracle_x = u64::from_le_bytes(data[306..314].try_into().unwrap());
-        let oracle_y = u64::from_le_bytes(data[314..322].try_into().unwrap());
-        let oracle_price = (oracle_x as f64 / oracle_y as f64)
-            * 10f64.powi(mint_a_decimals as i32 - mint_b_decimals as i32);
+        println!("Vault account: {}", vault_a_state);
+        let vault_account = get_account(&vault_a_state)?;
+        let data = &vault_account.data;
 
-        Ok(Box::new(ObricPool {
+        // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
+        for i in 182..816 {
+            let val = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
+            if val.to_string().starts_with("33") {
+                println!("{} - {}", i, val as f64);
+            }
+        }
+
+        Ok(Box::new(ZeroFiPool {
             pk: *pool_address,
-            oracle_price,
+            update_authority_a,
+            update_authority_b,
+            oracle_price: 0.0,
             mint_a,
             mint_b,
             vault_a,
             vault_b,
+            decimals_a,
+            decimals_b,
             token_program_a,
             token_program_b,
-            decimals_a: mint_a_decimals,
-            decimals_b: mint_b_decimals,
-            price_feed_x,
-            price_feed_y,
-            protocol_fee_x,
-            protocol_fee_y,
-            mint_sslp_x,
-            mint_sslp_y,
+            vault_a_state,
+            vault_b_state,
         }))
     }
 
@@ -174,15 +180,15 @@ impl ObricAdapter {
         let mut accounts = get_pma_with_filter(
             &self.client,
             &self.get_program_id(),
-            666,
-            vec![(234, *input_mint), (202, *output_mint)],
+            7456,
+            vec![(72, *input_mint), (104, *output_mint)],
         )?;
         if accounts.is_empty() {
             accounts = get_pma_with_filter(
                 &self.client,
                 &self.get_program_id(),
-                666,
-                vec![(234, *output_mint), (202, *input_mint)],
+                7456,
+                vec![(72, *output_mint), (104, *input_mint)],
             )?;
             if accounts.is_empty() {
                 anyhow::bail!(
@@ -198,9 +204,9 @@ impl ObricAdapter {
     }
 }
 
-impl DexAdapter for ObricAdapter {
+impl DexAdapter for ZeroFiAdapter {
     fn get_program_id(&self) -> Pubkey {
-        OBRIC_PROGRAM_ID
+        ZEROFI_PROGRAM_ID
     }
 
     fn fetch_pool_data(
@@ -209,12 +215,12 @@ impl DexAdapter for ObricAdapter {
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_rpc_getter(&self.client);
-        self.parse_obric_pool(pool_address, &mut get_account)
+        self.parse_zerofi_pool(pool_address, &mut get_account)
     }
 
     fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_svm_getter(svm);
-        self.parse_obric_pool(pool_address, &mut get_account)
+        self.parse_zerofi_pool(pool_address, &mut get_account)
     }
 
     fn fetch_pair_data(
@@ -225,11 +231,11 @@ impl DexAdapter for ObricAdapter {
     ) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_rpc_getter(&self.client);
         let pool_address = self.get_pool_address(input_mint, output_mint)?;
-        self.parse_obric_pool(&pool_address, &mut get_account)
+        self.parse_zerofi_pool(&pool_address, &mut get_account)
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        let accounts = get_pma_with_filter(&self.client, &self.get_program_id(), 666, vec![])?;
+        let accounts = get_pma_with_filter(&self.client, &self.get_program_id(), 7456, vec![])?;
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
         Ok(pubkeys)
     }
@@ -238,53 +244,68 @@ impl DexAdapter for ObricAdapter {
         &self,
         pool_data: &dyn PoolData,
         user: &Pubkey,
-        x_to_y: bool,
+        a_to_b: bool,
         amount_in: u64,
         min_amount_out: u64,
     ) -> Result<Vec<Instruction>> {
         let pool = pool_data
             .as_any()
-            .downcast_ref::<ObricPool>()
+            .downcast_ref::<ZeroFiPool>()
             .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
         let swap_params = SwapParams {
-            x_to_y,
             amount_in,
             min_amount_out,
         };
 
-        // Obric swap data
-        let mut data = Vec::with_capacity(25);
-        data.extend_from_slice(&OBRIC_SWAP_SELECTOR);
+        let mut data = Vec::with_capacity(17);
+        data.extend_from_slice(&ZEROFI_SWAP_SELECTOR);
         data.extend_from_slice(&borsh::to_vec(&swap_params)?);
 
-        let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
-        let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
+        let (user_source, user_destination) = if a_to_b {
+            (
+                get_ata(user, &pool.mint_a, &pool.token_program_a),
+                get_ata(user, &pool.mint_b, &pool.token_program_b),
+            )
+        } else {
+            (
+                get_ata(user, &pool.mint_b, &pool.token_program_b),
+                get_ata(user, &pool.mint_a, &pool.token_program_a),
+            )
+        };
+
+        let (vault_source, vault_destination) = if a_to_b {
+            (pool.vault_a, pool.vault_b)
+        } else {
+            (pool.vault_b, pool.vault_a)
+        };
+
+        let (vault_source_state, vault_destination_state) = if a_to_b {
+            (pool.vault_a_state, pool.vault_b_state)
+        } else {
+            (pool.vault_b_state, pool.vault_a_state)
+        };
 
         let accounts = vec![
             AccountMeta::new(pool.pk, false),
-            AccountMeta::new_readonly(pool.protocol_fee_y, false),
-            AccountMeta::new_readonly(pool.mint_sslp_x, false),
-            AccountMeta::new(pool.vault_a, false),
-            AccountMeta::new(pool.vault_b, false),
-            AccountMeta::new(user_ata_a, false),
-            AccountMeta::new(user_ata_b, false),
-            AccountMeta::new(pool.protocol_fee_x, false),
-            AccountMeta::new_readonly(pool.price_feed_x, false),
-            AccountMeta::new_readonly(pool.price_feed_y, false),
-            AccountMeta::new(*user, true), // signer
+            AccountMeta::new(vault_source_state, false),
+            AccountMeta::new(vault_source, false),
+            AccountMeta::new(vault_destination_state, false),
+            AccountMeta::new(vault_destination, false),
+            AccountMeta::new(user_source, false),
+            AccountMeta::new(user_destination, false),
+            AccountMeta::new_readonly(*user, true), // signer
             AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
         ];
-        // for account in accounts.iter() {
-        //     println!("Account: {:?}", account.pubkey);
-        // }
 
         let swap_ix = Instruction {
-            program_id: OBRIC_PROGRAM_ID,
+            program_id: ZEROFI_PROGRAM_ID,
             accounts,
             data,
         };
 
+        // let executor_ix = build_executor_instruction(*user, swap_ix);
         Ok(vec![swap_ix])
     }
 }

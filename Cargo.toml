@@ -4,12 +4,24 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-solana-client = "2.0"
-solana-sdk = "2.0"
-solana-program = "2.0"
-solana-account-decoder = "2.0"
-spl-token = "6.0"
-spl-associated-token-account = "6.0"
+solana-sdk = "3.0"
+solana-account = "3.0"
+solana-account-decoder = "3.0"
+solana-keypair = "3.0"
+solana-message = "3.0"
+solana-pubkey = "3.0"
+solana-signer = "3.0"
+solana-transaction = "3.0"
+solana-rpc-client = "3.0"
+solana-client = "3.0"
+solana-program = "3.0"
+solana-commitment-config = "3.0"
+solana-system-interface = "2.0.0"
+spl-token = "9.0"
+spl-associated-token-account = "8.0"
+litesvm = "0.8.1"
+# litesvm = { git = "https://github.com/kyoshoku/litesvm.git#d0d2228584fc64a45445e18af6aa54f2b404b6a0" }
+
 tokio = { version = "1.0", features = ["full"] }
 clap = { version = "4.0", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -20,3 +32,7 @@ borsh = "1.0"
 dotenv = "0.15"
 bs58 = "0.5"
 sha2 = "0.10.8"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.21"
+async-trait = "0.1.89"
+litesvm-token = "0.8.1"
