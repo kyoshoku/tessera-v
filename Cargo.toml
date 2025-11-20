@@ -19,7 +19,8 @@ solana-commitment-config = "3.0"
 solana-system-interface = "2.0.0"
 spl-token = "9.0"
 spl-associated-token-account = "8.0"
-litesvm = "0.8.1"
+litesvm = {version = "0.8.2" }
+litesvm-token = {version = "0.8.2" }
 # litesvm = { git = "https://github.com/kyoshoku/litesvm.git#d0d2228584fc64a45445e18af6aa54f2b404b6a0" }
 
 tokio = { version = "1.0", features = ["full"] }
@@ -35,4 +36,5 @@ sha2 = "0.10.8"
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.21"
 async-trait = "0.1.89"
-litesvm-token = "0.8.1"
+tracing-subscriber = "0.3.20"
+tracing = "0.1.41"

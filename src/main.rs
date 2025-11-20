@@ -5,6 +5,7 @@ use solana_client::{
     rpc_config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig},
 };
 use solana_keypair::Keypair;
+use solana_message::Message;
 use solana_sdk::{clock::Clock, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
@@ -235,13 +236,9 @@ async fn handle_dump_command(
     let pool_data = adapter.fetch_pool_data(&pool_address, config)?;
     pool_data.display();
 
-    let swap_ixs = adapter.build_swap_instructions(
-        pool_data.as_ref(),
-        &Pubkey::default(),
-        true,
-        1_000_000,
-        0,
-    )?;
+    let user = config.get_payer()?.pubkey();
+    let swap_ixs =
+        adapter.build_swap_instructions(pool_data.as_ref(), &user, true, 1_000_000, 0)?;
 
     let mut addresses = HashSet::new();
     for ix in swap_ixs {
@@ -303,6 +300,10 @@ async fn handle_swap_command(
         min_amount_out,
         config,
     )?;
+    println!(
+        "Transaction: {:?}",
+        bs58::encode(transaction.message.serialize()).into_string()
+    );
 
     let client = RpcClient::new(config.get_rpc_url());
 
@@ -370,7 +371,7 @@ async fn handle_curve_simulate_command(
     writeln!(csv, "direction,in_amount,out_amount,price,oracle_price")?;
     let adapter = get_adapter(protocol, config)?;
 
-    let svm = svm::init_svm(&file)?;
+    let mut svm = svm::init_svm(&file)?;
     let pool_data = adapter.load_pool_data(&pool_address, &svm)?;
 
     let oracle_price = pool_data.as_ref().get_oracle_price();
@@ -409,11 +410,11 @@ async fn handle_curve_simulate_command(
     // Initialize SVM with the dumped accounts
     let user_keypair = Keypair::new();
     let user = user_keypair.pubkey();
+    svm.airdrop(&user, LAMPORTS_PER_SOL)
+        .map_err(|e| anyhow::anyhow!("airdrop failed: {:?}", e))?;
 
     let mut in_amounts = vec![
-        1_000,
-        // 10_000,
-        // 100_000,
+        100_000,
         // 1_000_000,
         // 10_000_000,
         // 100_000_000,
@@ -426,13 +427,8 @@ async fn handle_curve_simulate_command(
 
     let min_amount_out = 1;
 
-    // let blockhash = svm.get_sysvar::<solana_sdk::sysvar::instructions::Instructions>();
-    // println!("Blockhash: {}", blockhash);
-
     // Run SVM simulations in parallel; each task owns its own SVM and input
-    let mut tasks = JoinSet::new();
     for &in_amount in &in_amounts {
-        let file = file.clone();
         let protocol = protocol.to_string();
         let config = config.clone();
         let pool_address = pool_address;
@@ -443,102 +439,65 @@ async fn handle_curve_simulate_command(
         let a_to_b = a_to_b;
         let oracle_price = oracle_price;
 
-        tasks.spawn_blocking(move || -> Result<String> {
-            // New user per task
-            let user_keypair = Keypair::new();
-            let user = user_keypair.pubkey();
-            let mut svm = svm::init_svm(&file)?;
-            svm.airdrop(&user, LAMPORTS_PER_SOL)
-                .map_err(|e| anyhow::anyhow!("Failed to airdrop: {:?}", e))?;
+        // Build instructions inside the task
+        let adapter = get_adapter(&protocol, &config)?;
+        let pool_data = adapter.as_ref().load_pool_data(&pool_address, &svm)?;
 
-            // Build instructions inside the task
-            let adapter = get_adapter(&protocol, &config)?;
-            let pool_data = adapter.as_ref().load_pool_data(&pool_address, &svm)?;
+        let (in_token_program, out_token_program) = if a_to_b {
+            (
+                pool_data.get_token_program_a(),
+                pool_data.get_token_program_b(),
+            )
+        } else {
+            (
+                pool_data.get_token_program_b(),
+                pool_data.get_token_program_a(),
+            )
+        };
 
-            let (in_token_program, out_token_program) = if a_to_b {
-                (
-                    pool_data.get_token_program_a(),
-                    pool_data.get_token_program_b(),
-                )
-            } else {
-                (
-                    pool_data.get_token_program_b(),
-                    pool_data.get_token_program_a(),
-                )
-            };
+        let user_in_ata = get_ata(&user, &input_token, &in_token_program);
+        make_ata_account(
+            &mut svm,
+            &input_token,
+            &user_keypair,
+            &in_token_program,
+            in_amount,
+        );
 
-            let user_in_ata = get_ata(&user, &input_token, &in_token_program);
-            make_ata_account(
-                &mut svm,
-                &input_token,
-                &user_keypair,
-                &in_token_program,
-                in_amount,
-            );
+        let user_out_ata = get_ata(&user, &output_token, &out_token_program);
+        make_ata_account(
+            &mut svm,
+            &output_token,
+            &user_keypair,
+            &out_token_program,
+            0,
+        );
 
-            let user_out_ata = get_ata(&user, &output_token, &out_token_program);
-            make_ata_account(
-                &mut svm,
-                &output_token,
-                &user_keypair,
-                &out_token_program,
-                0,
-            );
+        let ixs = swap::build_simulate_ixs(
+            &adapter,
+            pool_data,
+            &user,
+            a_to_b,
+            in_amount,
+            min_amount_out,
+        )?;
 
-            let ixs = swap::build_simulate_ixs(
-                &adapter,
-                pool_data,
-                &user,
-                a_to_b,
-                in_amount,
-                min_amount_out,
-            )?;
+        let tx = Transaction::new_with_payer(&ixs, Some(&user));
+        let signed_tx = Transaction::new(&[&user_keypair], tx.message, svm.latest_blockhash());
 
-            for ix in ixs.iter() {
-                for account in ix.accounts.iter() {
-                    println!("{:?}", account.pubkey);
-                    match svm.get_account(&account.pubkey) {
-                        Some(acc) => {
-                            println!("      Owner: {}", acc.owner.to_string());
-                        }
-                        None => {
-                            println!("      Account not found: {:?}", account.pubkey);
-                        }
-                    }
-                }
-            }
+        svm.send_transaction(signed_tx)
+            .map_err(|e| anyhow::anyhow!("send failed: {:?}", e))?;
 
-            let tx = Transaction::new_with_payer(&ixs, Some(&user));
-            let signed_tx = Transaction::new(&[&user_keypair], tx.message, svm.latest_blockhash());
-            svm.simulate_transaction(signed_tx)
-                .map_err(|e| anyhow::anyhow!("send failed: {:?}", e))?;
+        let out_balance = svm::token_balance(&svm, &user_out_ata);
+        let in_amount_f64 = in_amount as f64 / 10f64.powi(input_decimals as i32);
+        let out_amount_f64 = out_balance as f64 / 10f64.powi(output_decimals as i32);
+        let price = out_amount_f64 / in_amount_f64;
 
-            let out_balance = svm::token_balance(&svm, &user_out_ata);
-            let in_amount_f64 = in_amount as f64 / 10f64.powi(input_decimals as i32);
-            let out_amount_f64 = out_balance as f64 / 10f64.powi(output_decimals as i32);
-            let price = out_amount_f64 / in_amount_f64;
-
-            let direction = if a_to_b { "AtoB" } else { "BtoA" };
-            Ok(format!(
-                "{},{:.10},{:.10},{:.10},{}",
-                direction, in_amount_f64, out_amount_f64, price, oracle_price
-            ))
-        });
-    }
-
-    // Collect results and write to CSV
-    while let Some(res) = tasks.join_next().await {
-        match res {
-            Ok(Ok(line)) => {
-                writeln!(csv, "{}", line)?;
-            }
-            Ok(Err(e)) => {
-                println!("Task failed: {}", e);
-            }
-            Err(e) => {
-                println!("Join error: {}", e);
-            }
-        }
+        let direction = if a_to_b { "AtoB" } else { "BtoA" };
+        println!(
+            "Swap - {},{:.10},{:.10},{:.10},{}",
+            direction, in_amount_f64, out_amount_f64, price, oracle_price
+        );
     }
 
     Ok(())

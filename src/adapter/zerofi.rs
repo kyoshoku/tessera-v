@@ -146,17 +146,8 @@ impl ZeroFiAdapter {
             .unwrap()
             .decimals;
 
-        println!("Vault account: {}", vault_a_state);
         let vault_account = get_account(&vault_a_state)?;
         let data = &vault_account.data;
-
-        // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
-        for i in 182..816 {
-            let val = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
-            if val.to_string().starts_with("33") {
-                println!("{} - {}", i, val as f64);
-            }
-        }
 
         Ok(Box::new(ZeroFiPool {
             pk: *pool_address,

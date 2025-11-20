@@ -34,7 +34,7 @@ cargo run -- --protocol obric read -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCu
 cargo run -- --protocol saros read -p 7EFmig3Jb9j1kJ7ppaUs5iY8P5pBnRdQXUR4q9vSCY37
 cargo run -- --protocol alphaq read -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
 cargo run -- --protocol humidifi read -p 3QYYvFWgSuGK8bbxMSAYkCqE8QfSuFtByagnZAuekia2
-cargo run -- --protocol aquifer read -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
+cargo run -- --protocol aquifer read -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46
 cargo run -- --protocol zerofi read -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB
 
 # Build and submit swap transaction
@@ -50,9 +50,9 @@ cargo run -- simulate -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n -i 1000000
 cargo run --  --protocol goonfi simulate -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i 1000000 -a 1
 cargo run --  --protocol saros simulate -p 2wUvdZA8ZsY714Y5wUL9fkFmupJGGwzui2N74zqJWgty -i 1000000 -a 1
 cargo run --  --protocol aquifer simulate -i SOL -o USDC -a 1000000
-cargo run --  --protocol zerofi simulate -i USDC -o WETH -a 10000
-cargo run --  --protocol alphaq simulate -i USDC -o USDT -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -a 100000
-cargo run --  --protocol obric simulate -i SOL -o USDC -a 10000 -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ 
+cargo run --  --protocol zerofi simulate -i USDC -o WETH -p AWVGmTvNCGiqHFzjmBe4pLkkWm3he7aB8FeNqqfUSVXx -a 10000
+cargo run --  --protocol alphaq simulate -i USDT -o USDC -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -a 100000
+cargo run --  --protocol obric simulate -i SOL -o USDC -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ -a 10000
 
 # List all pool accounts for a protocol
 cargo run -- list --protocol tessera
@@ -66,9 +66,11 @@ cargo run -- list --protocol zerofi
 
 
 # Dump accounts for protocol
+cargo run -- -p tessera dump -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
 cargo run -- -p zerofi dump -p AWVGmTvNCGiqHFzjmBe4pLkkWm3he7aB8FeNqqfUSVXx
 cargo run -- -p obric dump -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ
 cargo run -- -p alphaq dump -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
+cargo run -- -p goonfi dump -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46
 
 export LITELLM_LOG="DEBUG"
 
