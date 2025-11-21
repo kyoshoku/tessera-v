@@ -5,13 +5,11 @@ use solana_client::{
     rpc_config::{RpcSendTransactionConfig, RpcSimulateTransactionConfig},
 };
 use solana_keypair::Keypair;
-use solana_message::Message;
-use solana_sdk::{clock::Clock, native_token::LAMPORTS_PER_SOL, pubkey::Pubkey};
+use solana_sdk::{native_token::LAMPORTS_PER_SOL, pubkey::Pubkey};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use std::{collections::HashSet, str::FromStr};
 use std::{fs::File, io::Write};
-use tokio::task::JoinSet;
 
 mod adapter;
 mod config;
@@ -95,10 +93,6 @@ enum Commands {
         /// Pool address
         #[arg(short, long)]
         pool_address: String,
-
-        /// Output file path
-        #[arg(short, long, default_value = "pool_data.json")]
-        output: String,
     },
     /// Simulate curve swap
     CurveSimulate {
@@ -110,8 +104,6 @@ enum Commands {
         #[arg(short, long)]
         a_to_b: u8,
 
-        #[arg(short, long, default_value = "pool_data.json")]
-        file: String,
         /// CSV output file path
         #[arg(short = 'o', long, default_value = "result.csv")]
         csv_out: String,
@@ -167,14 +159,12 @@ async fn main() -> Result<()> {
             )
             .await
         }
-        Commands::Dump {
-            pool_address,
-            output,
-        } => handle_dump_command(&args.protocol, pool_address, output, &config).await,
+        Commands::Dump { pool_address } => {
+            handle_dump_command(&args.protocol, pool_address, &config).await
+        }
         Commands::CurveSimulate {
             pool_address,
             a_to_b,
-            file,
             csv_out,
         } => {
             handle_curve_simulate_command(
@@ -182,7 +172,6 @@ async fn main() -> Result<()> {
                 pool_address,
                 a_to_b == 1,
                 &config,
-                file,
                 csv_out,
             )
             .await
@@ -224,12 +213,7 @@ async fn handle_list_command(protocol: &str, config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn handle_dump_command(
-    protocol: &str,
-    pool_address: String,
-    output_file: String,
-    config: &Config,
-) -> Result<()> {
+async fn handle_dump_command(protocol: &str, pool_address: String, config: &Config) -> Result<()> {
     let adapter = get_adapter(protocol, config)?;
     let pool_address = Pubkey::from_str(&pool_address)?;
     let program_id = adapter.get_program_id();
@@ -260,6 +244,8 @@ async fn handle_dump_command(
     for pda in pda_accounts {
         addresses.insert(pda.0);
     }
+
+    let output_file = format!("{}_{}.json", protocol, pool_address);
 
     svm::dump_pool_accounts(
         addresses.into_iter().collect::<Vec<_>>(),
@@ -358,7 +344,6 @@ async fn handle_curve_simulate_command(
     pool_address: String,
     a_to_b: bool,
     config: &Config,
-    file: String,
     csv_out: String,
 ) -> Result<()> {
     println!("CurveSimulate command called:");
@@ -371,6 +356,7 @@ async fn handle_curve_simulate_command(
     writeln!(csv, "direction,in_amount,out_amount,price,oracle_price")?;
     let adapter = get_adapter(protocol, config)?;
 
+    let file = format!("{}_{}.json", protocol, pool_address);
     let mut svm = svm::init_svm(&file)?;
     let pool_data = adapter.load_pool_data(&pool_address, &svm)?;
 
@@ -408,13 +394,14 @@ async fn handle_curve_simulate_command(
     println!("Output vault balance: {}", output_vault_balance);
 
     // Initialize SVM with the dumped accounts
-    let user_keypair = Keypair::new();
+    // let user_keypair = Keypair::new();
+    let user_keypair = config.get_payer()?;
     let user = user_keypair.pubkey();
     svm.airdrop(&user, LAMPORTS_PER_SOL)
         .map_err(|e| anyhow::anyhow!("airdrop failed: {:?}", e))?;
 
-    let mut in_amounts = vec![
-        100_000,
+    let in_amounts = vec![
+        1_000_000,
         // 1_000_000,
         // 10_000_000,
         // 100_000_000,
@@ -425,7 +412,7 @@ async fn handle_curve_simulate_command(
         // 10_000_000_000_000,
     ];
 
-    let min_amount_out = 1;
+    let min_amount_out = 0;
 
     // Run SVM simulations in parallel; each task owns its own SVM and input
     for &in_amount in &in_amounts {
@@ -455,7 +442,8 @@ async fn handle_curve_simulate_command(
             )
         };
 
-        let user_in_ata = get_ata(&user, &input_token, &in_token_program);
+        let user_out_ata = get_ata(&user, &output_token, &out_token_program);
+
         make_ata_account(
             &mut svm,
             &input_token,
@@ -463,8 +451,6 @@ async fn handle_curve_simulate_command(
             &in_token_program,
             in_amount,
         );
-
-        let user_out_ata = get_ata(&user, &output_token, &out_token_program);
         make_ata_account(
             &mut svm,
             &output_token,

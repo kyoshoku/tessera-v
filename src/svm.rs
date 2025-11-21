@@ -7,9 +7,20 @@ use serde_json;
 use solana_account::Account;
 use solana_client::rpc_client::RpcClient;
 use solana_keypair::Keypair;
+use solana_program::last_restart_slot::LastRestartSlot;
 use solana_pubkey::Pubkey;
 use solana_sdk::{
-    clock::Clock, native_token::LAMPORTS_PER_SOL, program_pack::Pack, sysvar::SysvarId,
+    clock::{Clock, Epoch},
+    epoch_schedule::EpochSchedule,
+    native_token::LAMPORTS_PER_SOL,
+    program_pack::Pack,
+    pubkey,
+    rent::Rent,
+    slot_hashes::SlotHashes,
+    slot_history::SlotHistory,
+    sysvar::{
+        fees::Fees, instructions::Instructions, recent_blockhashes::RecentBlockhashes, SysvarId,
+    },
 };
 use solana_signer::Signer;
 use spl_token::state::Account as TokenAccount;
@@ -55,16 +66,11 @@ pub fn make_ata_account(
 }
 
 pub fn init_svm(dump_file_path: &str) -> Result<LiteSVM> {
-    use std::env;
     tracing_subscriber::fmt::init();
     std::env::set_var("RUST_LOG", "trace");
 
-    let mut svm = LiteSVM::default()
-        .with_sysvars()
-        .with_builtins()
-        .with_default_programs()
+    let mut svm = LiteSVM::new()
         .with_sigverify(false)
-        .with_blockhash_check(false)
         .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL));
 
     // svm.add_program_from_file(ATA_PROGRAM_ID, "data/ata.so")?;
@@ -179,6 +185,14 @@ pub fn dump_pool_accounts(addresses: Vec<Pubkey>, rpc_url: &str, output_file: &s
 
     let mut addresses = addresses;
     addresses.push(Clock::id());
+    addresses.push(RecentBlockhashes::id());
+    addresses.push(LastRestartSlot::id());
+    // addresses.push(EpochSchedule::id());
+    // addresses.push(Fees::id());
+    // addresses.push(Instructions::id());
+    // addresses.push(Rent::id());
+    // addresses.push(SlotHashes::id());
+    // addresses.push(SlotHistory::id());
 
     let accounts = client.get_multiple_accounts(&addresses)?;
 

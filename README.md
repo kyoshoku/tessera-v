@@ -24,8 +24,15 @@ cargo build --release
 ## Usage
 
 ```bash
-# Read pool data (default protocol: tessera)
-cargo run -- read -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
+# List all pool accounts for a protocol
+cargo run -- list --protocol tessera
+cargo run -- list --protocol goonfi
+cargo run -- list --protocol obric
+cargo run -- list --protocol saros
+cargo run -- list --protocol alphaq
+cargo run -- list --protocol aquifer
+cargo run -- list --protocol humidifi
+cargo run -- list --protocol zerofi
 
 # Read pool data with specific protocol
 cargo run -- --protocol tessera read -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
@@ -44,40 +51,32 @@ cargo run --  --protocol obric swap -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kC
 cargo run --  --protocol saros swap -p 2wUvdZA8ZsY714Y5wUL9fkFmupJGGwzui2N74zqJWgty -i 1000000 -a 1
 cargo run --  --protocol alphaq swap -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -i 1000000 -a 1
 cargo run --  --protocol aquifer swap -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i 1000000 -a 1
+cargo run --  --protocol zerofi swap -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB -i 1000000 -a 1
 
 # Simulate swap transaction (builds and simulates actual transaction)
 cargo run -- simulate -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n -i 1000000 -a 1
 cargo run --  --protocol goonfi simulate -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46 -i 1000000 -a 1
 cargo run --  --protocol saros simulate -p 2wUvdZA8ZsY714Y5wUL9fkFmupJGGwzui2N74zqJWgty -i 1000000 -a 1
 cargo run --  --protocol aquifer simulate -i SOL -o USDC -a 1000000
-cargo run --  --protocol zerofi simulate -i USDC -o WETH -p AWVGmTvNCGiqHFzjmBe4pLkkWm3he7aB8FeNqqfUSVXx -a 10000
+cargo run --  --protocol zerofi simulate -i USDC -o JUP -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB -a 10000
 cargo run --  --protocol alphaq simulate -i USDT -o USDC -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -a 100000
 cargo run --  --protocol obric simulate -i SOL -o USDC -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ -a 10000
-
-# List all pool accounts for a protocol
-cargo run -- list --protocol tessera
-cargo run -- list --protocol goonfi
-cargo run -- list --protocol obric
-cargo run -- list --protocol saros
-cargo run -- list --protocol alphaq
-cargo run -- list --protocol aquifer
-cargo run -- list --protocol humidifi
-cargo run -- list --protocol zerofi
 
 
 # Dump accounts for protocol
 cargo run -- -p tessera dump -p FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
-cargo run -- -p zerofi dump -p AWVGmTvNCGiqHFzjmBe4pLkkWm3he7aB8FeNqqfUSVXx
+cargo run -- -p zerofi dump -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB
 cargo run -- -p obric dump -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ
 cargo run -- -p alphaq dump -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm
 cargo run -- -p goonfi dump -p 4ynTYgJK5ruYx3AZMRjCHrJk1qkm61fePF7dkbvRQD46
 
-export LITELLM_LOG="DEBUG"
-
+# Simulate swap with liteSVM
 cargo run -- -p tessera curve-simulate -p BDqQBspbipXxnTX2kw4FPM9pzfcf9kwieGCy4yUZ9tCC -a 1
-cargo run -- -p zerofi curve-simulate -p AWVGmTvNCGiqHFzjmBe4pLkkWm3he7aB8FeNqqfUSVXx -a 1
+cargo run -- -p zerofi curve-simulate -p 1amiJLvkVHjPz7t8dwBsWHknHitcpqwPPuuUCfHyzjB -a 1
 cargo run -- -p obric curve-simulate -p AvBSC1KmFNceHpD6jyyXBV6gMXFxZ8BJJ3HVUN8kCurJ -a 1
 cargo run -- -p alphaq curve-simulate -p Pi9nzTjPxD8DsRfRBGfKYzmefJoJM8TcXu2jyaQjSHm -a 1
+
+
 
 ```
 

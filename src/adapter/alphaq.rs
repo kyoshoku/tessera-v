@@ -6,18 +6,16 @@ use crate::{
 use anyhow::Result;
 use litesvm::LiteSVM;
 use solana_client::rpc_client::RpcClient;
-use solana_program::program_pack::Pack;
 use solana_program::pubkey;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
-use spl_token::state::Mint;
 use std::any::Any;
 
 use super::{DexAdapter, PoolData};
 
-use crate::utils::{build_executor_instruction, make_rpc_getter, make_svm_getter, MiniAccount};
+use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Common swap parameters
@@ -220,8 +218,8 @@ impl DexAdapter for AlphaqAdapter {
 
     fn fetch_pair_data(
         &self,
-        input_mint: &Pubkey,
-        output_mint: &Pubkey,
+        _input_mint: &Pubkey,
+        _output_mint: &Pubkey,
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         anyhow::bail!("Not implemented");

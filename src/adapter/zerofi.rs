@@ -27,13 +27,6 @@ pub struct SwapParams {
 }
 
 #[derive(Debug, Clone)]
-pub struct VaultInfo {
-    pub address: Pubkey,
-    pub ata: Pubkey,
-    pub oracle: Pubkey,
-}
-
-#[derive(Debug, Clone)]
 pub struct ZeroFiPool {
     pub pk: Pubkey,
     pub mint_a: Pubkey,
@@ -59,6 +52,8 @@ impl PoolData for ZeroFiPool {
         println!("Mint B: {}", self.mint_b);
         println!("Vault A: {}", self.vault_a);
         println!("Vault B: {}", self.vault_b);
+        println!("Update Authority A: {}", self.update_authority_a);
+        println!("Update Authority B: {}", self.update_authority_b);
         println!("Oracle Price: ${:.4}", self.oracle_price);
     }
 
@@ -145,9 +140,6 @@ impl ZeroFiAdapter {
         let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
             .unwrap()
             .decimals;
-
-        let vault_account = get_account(&vault_a_state)?;
-        let data = &vault_account.data;
 
         Ok(Box::new(ZeroFiPool {
             pk: *pool_address,
