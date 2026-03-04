@@ -60,7 +60,7 @@ enum Commands {
         #[arg(short, long)]
         amount_in: u64,
         /// Minimum amount out (slippage protection)
-        #[arg(short, long, default_value = "0")]
+        #[arg(short, long, default_value = "1")]
         min_amount_out: u64,
     },
     /// Simulate swap transaction
@@ -79,7 +79,7 @@ enum Commands {
         #[arg(short, long)]
         amount_in: u64,
         /// Minimum amount out (slippage protection)
-        #[arg(short, long, default_value = "0")]
+        #[arg(short, long, default_value = "1")]
         min_amount_out: u64,
     },
     /// List pool accounts for a protocol
@@ -359,7 +359,7 @@ async fn handle_curve_simulate_command(
     let file = format!("{}_{}.json", protocol, pool_address);
     let mut svm = svm::init_svm(&file)?;
     let pool_data = adapter.load_pool_data(&pool_address, &svm)?;
-
+    
     let oracle_price = pool_data.as_ref().get_oracle_price();
     let oracle_price = if a_to_b {
         oracle_price
@@ -412,7 +412,7 @@ async fn handle_curve_simulate_command(
         // 10_000_000_000_000,
     ];
 
-    let min_amount_out = 0;
+    let min_amount_out = 1;
 
     // Run SVM simulations in parallel; each task owns its own SVM and input
     for &in_amount in &in_amounts {
@@ -458,6 +458,8 @@ async fn handle_curve_simulate_command(
             &out_token_program,
             0,
         );
+
+        println!("user_out_ata: {:?}", user_out_ata);
 
         let ixs = swap::build_simulate_ixs(
             &adapter,

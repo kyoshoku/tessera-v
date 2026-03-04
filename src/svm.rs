@@ -31,9 +31,9 @@ use std::{
 };
 
 use crate::constants::{
-    ALPHAQ_PROGRAM_ID, ALPHAQ_PROGRAM_PATH, EXECUTOR_PROGRAM_ID, EXECUTOR_PROGRAM_PATH,
-    OBRIC_PROGRAM_ID, OBRIC_PROGRAM_PATH, TESSERA_PROGRAM_ID, TESSERA_PROGRAM_PATH,
-    ZEROFI_PROGRAM_ID, ZEROFI_PROGRAM_PATH,
+    ALPHAQ_PROGRAM_ID, ALPHAQ_PROGRAM_PATH, BISONFI_PROGRAM_ID, BISONFI_PROGRAM_PATH,
+    EXECUTOR_PROGRAM_ID, EXECUTOR_PROGRAM_PATH, OBRIC_PROGRAM_ID, OBRIC_PROGRAM_PATH,
+    TESSERA_PROGRAM_ID, TESSERA_PROGRAM_PATH, ZEROFI_PROGRAM_ID, ZEROFI_PROGRAM_PATH,
 };
 use crate::utils::get_ata;
 
@@ -82,15 +82,16 @@ pub fn init_svm(dump_file_path: &str) -> Result<LiteSVM> {
     svm.add_program_from_file(ZEROFI_PROGRAM_ID, ZEROFI_PROGRAM_PATH)?;
     svm.add_program_from_file(OBRIC_PROGRAM_ID, OBRIC_PROGRAM_PATH)?;
     svm.add_program_from_file(ALPHAQ_PROGRAM_ID, ALPHAQ_PROGRAM_PATH)?;
+    svm.add_program_from_file(BISONFI_PROGRAM_ID, BISONFI_PROGRAM_PATH)?;
 
     // Load accounts from dump file and get slot number
     let (slot, timestamp) = load_accounts_from_dump(&mut svm, dump_file_path)?;
 
     // Set slot number from dump file
-    let mut clock = svm.get_sysvar::<Clock>();
-    clock.slot = slot;
-    clock.unix_timestamp = timestamp as i64;
-    svm.set_sysvar(&clock);
+    // let mut clock = svm.get_sysvar::<Clock>();
+    // clock.slot = slot;
+    // clock.unix_timestamp = timestamp as i64;
+    // svm.set_sysvar(&clock);
 
     Ok(svm)
 }

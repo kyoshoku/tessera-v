@@ -12,10 +12,10 @@ use solana_sdk::pubkey::Pubkey;
 
 use std::str::FromStr;
 
-use crate::adapter::aquifer::AquiferAdapter;
 use crate::adapter::{
-    alphaq::AlphaqAdapter, goonfi::GoonfiAdapter, humidifi::HumidifiAdapter, obric::ObricAdapter,
-    saros_amm::SarosAdapter, tessera::TesseraAdapter, zerofi::ZeroFiAdapter, DexAdapter,
+    alphaq::AlphaqAdapter, aquifer::AquiferAdapter, bisonfi::BisonfiAdapter, goonfi::GoonfiAdapter,
+    humidifi::HumidifiAdapter, obric::ObricAdapter, saros_amm::SarosAdapter, tessera::TesseraAdapter,
+    zerofi::ZeroFiAdapter, DexAdapter,
 };
 use crate::config::Config;
 use crate::constants::ATA_PROGRAM_ID;
@@ -44,6 +44,7 @@ pub fn get_adapter(protocol: &str, config: &Config) -> Result<Box<dyn DexAdapter
 
     let adapter: Box<dyn DexAdapter> = match protocol {
         "alphaq" => Box::new(AlphaqAdapter::new(client)),
+        "bisonfi" => Box::new(BisonfiAdapter::new(client)),
         "tessera" => Box::new(TesseraAdapter::new(client)),
         "goonfi" => Box::new(GoonfiAdapter::new(client)),
         "obric" => Box::new(ObricAdapter::new(client)),
