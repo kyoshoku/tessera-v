@@ -1,31 +1,41 @@
 use anyhow::Result;
 use base64;
 use bs58;
-use chrono;
-use litesvm::error::LiteSVMError;
 use litesvm::LiteSVM;
-use litesvm_token::{CreateAccount, CreateAssociatedTokenAccount, MintTo};
+use litesvm_token::CreateAssociatedTokenAccount;
 use serde_json;
-use solana_account::{Account, AccountSharedData};
+use solana_account::Account;
 use solana_client::rpc_client::RpcClient;
 use solana_keypair::Keypair;
+use solana_program::last_restart_slot::LastRestartSlot;
 use solana_pubkey::Pubkey;
-use solana_sdk::clock::{Clock, Epoch};
-use solana_sdk::native_token::LAMPORTS_PER_SOL;
-use solana_sdk::pubkey;
-use solana_sdk::{program_pack::Pack, rent::Rent};
+use solana_sdk::{
+    clock::{Clock, Epoch},
+    epoch_schedule::EpochSchedule,
+    native_token::LAMPORTS_PER_SOL,
+    program_pack::Pack,
+    pubkey,
+    rent::Rent,
+    slot_hashes::SlotHashes,
+    slot_history::SlotHistory,
+    sysvar::{
+        fees::Fees, instructions::Instructions, recent_blockhashes::RecentBlockhashes, SysvarId,
+    },
+};
 use solana_signer::Signer;
-use spl_token::state::{Account as TokenAccount, AccountState};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::str::FromStr;
+use spl_token::state::Account as TokenAccount;
+use std::{
+    fs::File,
+    io::{Read, Write},
+    str::FromStr,
+};
 
 use crate::constants::{
-    ALPHAQ_PROGRAM_ID, ALPHAQ_PROGRAM_PATH, ATA_PROGRAM_ID, BPF_LOADER_UPGRADEABLE_ID,
+    ALPHAQ_PROGRAM_ID, ALPHAQ_PROGRAM_PATH, BISONFI_PROGRAM_ID, BISONFI_PROGRAM_PATH,
     EXECUTOR_PROGRAM_ID, EXECUTOR_PROGRAM_PATH, OBRIC_PROGRAM_ID, OBRIC_PROGRAM_PATH,
-    SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TESSERA_PROGRAM_ID, TESSERA_PROGRAM_PATH,
-    TOKEN2022_PROGRAM_ID, ZEROFI_PROGRAM_ID, ZEROFI_PROGRAM_PATH,
+    TESSERA_PROGRAM_ID, TESSERA_PROGRAM_PATH, ZEROFI_PROGRAM_ID, ZEROFI_PROGRAM_PATH,
 };
+use crate::utils::get_ata;
 
 pub fn make_ata_account(
     svm: &mut LiteSVM,
@@ -34,56 +44,54 @@ pub fn make_ata_account(
     program_id: &Pubkey,
     amount: u64,
 ) -> Pubkey {
-    println!(
-        "Making ATA account for {:?}, program_id: {:?}, amount: {}",
-        mint, program_id, amount
-    );
-
-    let ata = CreateAssociatedTokenAccount::new(svm, payer, mint)
-        .owner(&payer.pubkey())
-        .token_program_id(program_id)
-        .send()
-        .unwrap();
-    println!("ATA account created: {:?}", ata);
+    let mut ata = get_ata(&payer.pubkey(), mint, program_id);
+    if svm.get_account(&ata).is_none() {
+        ata = CreateAssociatedTokenAccount::new(svm, payer, mint)
+            .owner(&payer.pubkey())
+            .token_program_id(program_id)
+            .send()
+            .unwrap();
+    }
 
     if amount > 0 {
-        // MintTo::new(svm, payer, mint, &ata, amount)
-        //     .owner(payer)
-        //     .token_program_id(program_id)
-        //     .send()
-        //     .unwrap();
-        // println!("Minted to ATA account: {:?}", ata);
+        let mut ata_account = svm.get_account(&ata).unwrap();
+        let mut ata_token_account = TokenAccount::unpack(&ata_account.data).unwrap();
+        ata_token_account.amount = amount;
+
+        TokenAccount::pack(ata_token_account, &mut ata_account.data).unwrap();
+        svm.set_account(ata, ata_account).unwrap();
     }
 
     ata
 }
 
 pub fn init_svm(dump_file_path: &str) -> Result<LiteSVM> {
-    let mut svm = LiteSVM::default()
-        .with_sysvars()
-        .with_builtins()
-        .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL))
-        // .with_default_programs()
-        .with_sigverify(true);
+    tracing_subscriber::fmt::init();
+    std::env::set_var("RUST_LOG", "trace");
 
-    svm.add_program_from_file(ATA_PROGRAM_ID, "data/ata.so")?;
-    svm.add_program_from_file(SPL_TOKEN_PROGRAM_ID, "data/spl_token.so")?;
-    svm.add_program_from_file(TOKEN2022_PROGRAM_ID, "data/token2022.so")?;
+    let mut svm = LiteSVM::new()
+        .with_sigverify(false)
+        .with_lamports(1_000_000u64.wrapping_mul(LAMPORTS_PER_SOL));
+
+    // svm.add_program_from_file(ATA_PROGRAM_ID, "data/ata.so")?;
+    // svm.add_program_from_file(SPL_TOKEN_PROGRAM_ID, "data/spl_token.so")?;
+    // svm.add_program_from_file(TOKEN2022_PROGRAM_ID, "data/token2022.so")?;
 
     svm.add_program_from_file(EXECUTOR_PROGRAM_ID, EXECUTOR_PROGRAM_PATH)?;
     svm.add_program_from_file(TESSERA_PROGRAM_ID, TESSERA_PROGRAM_PATH)?;
     svm.add_program_from_file(ZEROFI_PROGRAM_ID, ZEROFI_PROGRAM_PATH)?;
     svm.add_program_from_file(OBRIC_PROGRAM_ID, OBRIC_PROGRAM_PATH)?;
     svm.add_program_from_file(ALPHAQ_PROGRAM_ID, ALPHAQ_PROGRAM_PATH)?;
+    svm.add_program_from_file(BISONFI_PROGRAM_ID, BISONFI_PROGRAM_PATH)?;
 
     // Load accounts from dump file and get slot number
     let (slot, timestamp) = load_accounts_from_dump(&mut svm, dump_file_path)?;
 
     // Set slot number from dump file
-    let mut clock = svm.get_sysvar::<Clock>();
-    clock.slot = slot;
-    clock.unix_timestamp = timestamp as i64;
-    svm.set_sysvar(&clock);
+    // let mut clock = svm.get_sysvar::<Clock>();
+    // clock.slot = slot;
+    // clock.unix_timestamp = timestamp as i64;
+    // svm.set_sysvar(&clock);
 
     Ok(svm)
 }
@@ -177,12 +185,15 @@ pub fn dump_pool_accounts(addresses: Vec<Pubkey>, rpc_url: &str, output_file: &s
     let client = RpcClient::new(rpc_url);
 
     let mut addresses = addresses;
-    addresses.push(pubkey!("H2mDaMYkYAkZxZy8ByTjU13yputt7ScyGQwVtCyj8TMA"));
-    addresses.push(pubkey!("ALPHAQuu7dmdpSQfg2oPvSvACSCkAYgGENVpEwjCWNJf"));
-    addresses.push(pubkey!("4q5kWWY2JcybhZ2xbdZz32658Vxgcw7bNM97pFdKUdp8"));
-
-    // USDT
-    addresses.push(pubkey!("AoUkARFKW7abR7TYd5ic6uimkTjMPQ8GcyKbL4HULeCR"));
+    addresses.push(Clock::id());
+    addresses.push(RecentBlockhashes::id());
+    addresses.push(LastRestartSlot::id());
+    // addresses.push(EpochSchedule::id());
+    // addresses.push(Fees::id());
+    // addresses.push(Instructions::id());
+    // addresses.push(Rent::id());
+    // addresses.push(SlotHashes::id());
+    // addresses.push(SlotHistory::id());
 
     let accounts = client.get_multiple_accounts(&addresses)?;
 

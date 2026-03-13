@@ -19,7 +19,9 @@ pub const GOONFI_SWAP_SELECTOR: [u8; 1] = [0x2];
 pub const GOONFI_PROGRAM_ID: Pubkey = pubkey!("goonERTdGsjnkZqWuVjs73BZ3Pb9qoCUdBUL17BnS5j");
 
 /// Obric values
-pub const OBRIC_SWAP_SELECTOR: [u8; 8] = [65, 75, 63, 76, 235, 91, 91, 136];
+
+pub const OBRIC_SWAP_SELECTOR: [u8; 8] = [0xf8, 0xc6, 0x9e, 0x91, 0xe1, 0x75, 0x87, 0xc8];
+pub const OBRIC_SWAP_V2_SELECTOR: [u8; 8] = [65, 75, 63, 76, 235, 91, 91, 136];
 pub const OBRIC_PROGRAM_ID: Pubkey = pubkey!("obriQD1zbpyLz95G5n7nJe6a4DPjpFwa5XYPoNm113y");
 pub const OBRIC_PROGRAM_PATH: &str = "data/obric.so";
 
@@ -47,12 +49,12 @@ pub const ZEROFI_SWAP_SELECTOR: [u8; 1] = [0x6];
 pub const ZEROFI_PROGRAM_ID: Pubkey = pubkey!("ZERor4xhbUycZ6gb9ntrhqscUcZmAbQDjEAtCf4hbZY");
 pub const ZEROFI_PROGRAM_PATH: &str = "data/zerofi.so";
 
-pub const SPL_TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-pub const TOKEN2022_PROGRAM_ID: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+/// BisonFi values
+pub const BISONFI_SWAP_SELECTOR: [u8; 1] = [0x2];
+pub const BISONFI_PROGRAM_ID: Pubkey = pubkey!("BiSoNHVpsVZW2F7rx2eQ59yQwKxzU5NvBcmKshCSUypi");
+pub const BISONFI_PROGRAM_PATH: &str = "data/bisonfi.so";
+
 pub const ATA_PROGRAM_ID: Pubkey = pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-pub const SYSTEM_PROGRAM_ID: Pubkey = pubkey!("11111111111111111111111111111111");
-pub const BPF_LOADER_UPGRADEABLE_ID: Pubkey =
-    pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
 
 pub const WSOL_MINT: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
 pub const USDC_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");

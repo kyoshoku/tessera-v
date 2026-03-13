@@ -1,4 +1,7 @@
-use crate::utils::{get_pma_with_filter, make_rpc_getter, make_svm_getter, MiniAccount};
+use crate::constants::OBRIC_SWAP_V2_SELECTOR;
+use crate::utils::{
+    build_executor_instruction, get_pma_with_filter, make_rpc_getter, make_svm_getter, MiniAccount,
+};
 use crate::{
     config::Config,
     constants::{OBRIC_PROGRAM_ID, OBRIC_SWAP_SELECTOR},
@@ -255,7 +258,7 @@ impl DexAdapter for ObricAdapter {
 
         // Obric swap data
         let mut data = Vec::with_capacity(25);
-        data.extend_from_slice(&OBRIC_SWAP_SELECTOR);
+        data.extend_from_slice(&OBRIC_SWAP_V2_SELECTOR);
         data.extend_from_slice(&borsh::to_vec(&swap_params)?);
 
         let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
@@ -272,12 +275,9 @@ impl DexAdapter for ObricAdapter {
             AccountMeta::new(pool.protocol_fee_x, false),
             AccountMeta::new_readonly(pool.price_feed_x, false),
             AccountMeta::new_readonly(pool.price_feed_y, false),
-            AccountMeta::new(*user, true), // signer
+            AccountMeta::new_readonly(*user, true), // signer
             AccountMeta::new_readonly(spl_token::ID, false),
         ];
-        // for account in accounts.iter() {
-        //     println!("Account: {:?}", account.pubkey);
-        // }
 
         let swap_ix = Instruction {
             program_id: OBRIC_PROGRAM_ID,
@@ -285,6 +285,7 @@ impl DexAdapter for ObricAdapter {
             data,
         };
 
+        // let executor_ix = build_executor_instruction(*user, swap_ix);
         Ok(vec![swap_ix])
     }
 }

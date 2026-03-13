@@ -147,13 +147,6 @@ pub fn build_simulate_ixs(
         min_amount_out,
     )?;
 
-    // Determine output token
-    let output_token = if input_token.eq(&pool_data.get_mint_a()) {
-        pool_data.get_mint_b()
-    } else {
-        pool_data.get_mint_a()
-    };
-
     let post_ixs = if wrap_sol {
         build_unwrap_sol_instruction(&user, &wsol_ata)
     } else {

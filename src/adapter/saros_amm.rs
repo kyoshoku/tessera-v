@@ -184,8 +184,8 @@ impl DexAdapter for SarosAdapter {
 
     fn fetch_pair_data(
         &self,
-        input_mint: &Pubkey,
-        output_mint: &Pubkey,
+        _input_mint: &Pubkey,
+        _output_mint: &Pubkey,
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         anyhow::bail!("Not implemented");

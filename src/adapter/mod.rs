@@ -62,6 +62,7 @@ pub trait PoolData: Any {
 
 pub mod alphaq;
 pub mod aquifer;
+pub mod bisonfi;
 pub mod goonfi;
 pub mod humidifi;
 pub mod obric;

@@ -1,35 +1,42 @@
-use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
 use crate::{
     config::Config,
-    constants::{GOONFI_PROGRAM_ID, GOONFI_SWAP_SELECTOR},
-    utils::get_ata,
+    constants::{BISONFI_PROGRAM_ID, BISONFI_SWAP_SELECTOR},
+    utils::{get_ata, get_pma_with_filter},
 };
 use anyhow::Result;
 use litesvm::LiteSVM;
-use solana_client::rpc_client::RpcClient;
-use solana_sdk::program_pack::Pack;
+use solana_client::{rpc_client::RpcClient};
+use solana_program::program_pack::Pack;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
     pubkey::Pubkey,
 };
+use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token::state::Mint;
-use std::{any::Any, str::FromStr};
+use std::any::Any;
 
 use super::{DexAdapter, PoolData};
 
+use crate::utils::{make_rpc_getter, make_svm_getter, MiniAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 /// Common swap parameters
 #[derive(Debug, Clone, BorshDeserialize, BorshSerialize)]
 pub struct SwapParams {
-    pub is_user_bid: bool,
-    pub bump: u8,
-    pub amount_in: u64,
-    pub min_amount_out: u64,
+    pub amount_in: u64,      // Input amount
+    pub min_amount_out: u64, // Minimum output amount (slippage protection)
+    pub a_to_b: u8,          // Protocol-specific side indicator
 }
 
 #[derive(Debug, Clone)]
-pub struct GoonfiPool {
+pub struct VaultInfo {
+    pub address: Pubkey,
+    pub ata: Pubkey,
+    pub oracle: Pubkey,
+}
+
+#[derive(Debug, Clone)]
+pub struct BisonfiPool {
     pub pk: Pubkey,
     pub mint_a: Pubkey,
     pub mint_b: Pubkey,
@@ -42,7 +49,7 @@ pub struct GoonfiPool {
     pub decimals_b: u8,
 }
 
-impl PoolData for GoonfiPool {
+impl PoolData for BisonfiPool {
     fn display(&self) {
         println!("Pool: {}", self.pk);
         println!("Mint A: {}", self.mint_a);
@@ -64,16 +71,16 @@ impl PoolData for GoonfiPool {
         self.mint_b
     }
 
-    fn get_oracle_price(&self) -> f64 {
-        self.oracle_price
-    }
-
     fn get_decimals_a(&self) -> u8 {
         self.decimals_a
     }
 
     fn get_decimals_b(&self) -> u8 {
         self.decimals_b
+    }
+
+    fn get_oracle_price(&self) -> f64 {
+        self.oracle_price
     }
 
     fn get_vault_a(&self) -> Pubkey {
@@ -93,33 +100,29 @@ impl PoolData for GoonfiPool {
     }
 }
 
-pub struct GoonfiAdapter {
+pub struct BisonfiAdapter {
     client: RpcClient,
 }
 
-impl GoonfiAdapter {
+impl BisonfiAdapter {
     pub fn new(client: RpcClient) -> Self {
         Self { client }
     }
-}
 
-fn parse_goonfi_pool(
-    pool_address: &Pubkey,
-    get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
-) -> Result<Box<dyn PoolData>> {
-    let account = get_account(pool_address)?;
-    let data = &account.data;
+    fn parse_bisonfi_pool(
+        &self,
+        pool_address: &Pubkey,
+        get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+    ) -> Result<Box<dyn PoolData>> {
+        let account = get_account(pool_address)?;
+        let data = &account.data;
 
-    let mint_a = Pubkey::new_from_array((&data[256..288]).try_into().unwrap());
-    let mint_b = Pubkey::new_from_array((&data[288..320]).try_into().unwrap());
-    let vault_a = Pubkey::new_from_array((&data[320..352]).try_into().unwrap());
-    let vault_b = Pubkey::new_from_array((&data[352..384]).try_into().unwrap());
 
-    // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
-    let oracle_price_pico: u64 = u64::from_le_bytes(data[16..24].try_into().unwrap());
-    let oracle_price = oracle_price_pico as f64 / 1e6;
+    let vault_a = Pubkey::new_from_array((&data[120..152]).try_into().unwrap());
+    let vault_b = Pubkey::new_from_array((&data[152..184]).try_into().unwrap());
+    let mint_a = Pubkey::new_from_array((&data[184..216]).try_into().unwrap());
+    let mint_b = Pubkey::new_from_array((&data[216..248]).try_into().unwrap());
 
-    // Get the mintA info
     let mint_a_account = get_account(&mint_a)?;
     let token_program_a = mint_a_account.owner;
     let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
@@ -132,32 +135,59 @@ fn parse_goonfi_pool(
         .unwrap()
         .decimals;
 
-    Ok(Box::new(GoonfiPool {
+    Ok(Box::new(BisonfiPool {
         pk: *pool_address,
-        oracle_price,
+        oracle_price: 0.0,
         mint_a,
         mint_b,
-        token_program_a,
-        token_program_b,
         vault_a,
         vault_b,
         decimals_a,
         decimals_b,
+        token_program_a,
+        token_program_b,
     }))
-}
-
-impl DexAdapter for GoonfiAdapter {
-    fn get_program_id(&self) -> Pubkey {
-        GOONFI_PROGRAM_ID
     }
 
-    fn fetch_pair_data(
+    fn parse_bisonfi_pair(
         &self,
-        _input_mint: &Pubkey,
-        _output_mint: &Pubkey,
-        _config: &Config,
+        input_mint: &Pubkey,
+        output_mint: &Pubkey,
+        get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
     ) -> Result<Box<dyn PoolData>> {
-        anyhow::bail!("Not implemented");
+        let mint_a_account = get_account(&input_mint)?;
+        let token_program_a = mint_a_account.owner;
+        let decimals_a = Mint::unpack_unchecked(&mint_a_account.data)
+            .unwrap()
+            .decimals;
+
+        let mint_b_account = get_account(&output_mint)?;
+        let token_program_b = mint_b_account.owner;
+        let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
+            .unwrap()
+            .decimals;
+
+        let vault_a = get_associated_token_address_with_program_id(input_mint, &token_program_a, &BISONFI_PROGRAM_ID);
+        let vault_b = get_associated_token_address_with_program_id(output_mint, &token_program_b, &BISONFI_PROGRAM_ID);
+
+        Ok(Box::new(BisonfiPool {
+            pk: Pubkey::default(),
+            oracle_price: 0.0,
+            mint_a: *input_mint,
+            mint_b: *output_mint,
+            decimals_a,
+            decimals_b,
+            token_program_a,
+            token_program_b,
+            vault_a,
+            vault_b
+        }))
+    }
+}
+
+impl DexAdapter for BisonfiAdapter {
+    fn get_program_id(&self) -> Pubkey {
+        BISONFI_PROGRAM_ID
     }
 
     fn fetch_pool_data(
@@ -166,19 +196,26 @@ impl DexAdapter for GoonfiAdapter {
         _config: &Config,
     ) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_rpc_getter(&self.client);
-        parse_goonfi_pool(pool_address, &mut get_account)
+        self.parse_bisonfi_pool(pool_address, &mut get_account)
     }
 
     fn load_pool_data(&self, pool_address: &Pubkey, svm: &LiteSVM) -> Result<Box<dyn PoolData>> {
         let mut get_account = make_svm_getter(svm);
-        parse_goonfi_pool(pool_address, &mut get_account)
+        self.parse_bisonfi_pool(pool_address, &mut get_account)
+    }
+
+    fn fetch_pair_data(
+        &self,
+        input_mint: &Pubkey,
+        output_mint: &Pubkey,
+        _config: &Config,
+    ) -> Result<Box<dyn PoolData>> {
+        let mut get_account = make_rpc_getter(&self.client);
+        self.parse_bisonfi_pair(input_mint, output_mint, &mut get_account)
     }
 
     fn get_pools(&self, _config: &Config) -> Result<Vec<Pubkey>> {
-        // Get all accounts owned by the Goonfi program
-        let accounts = self.client.get_program_accounts(&GOONFI_PROGRAM_ID)?;
-
-        // Extract just the pubkeys
+        let accounts = get_pma_with_filter(&self.client, &self.get_program_id(), 2048, vec![])?;
         let pubkeys: Vec<Pubkey> = accounts.into_iter().map(|(pubkey, _)| pubkey).collect();
 
         Ok(pubkeys)
@@ -194,40 +231,36 @@ impl DexAdapter for GoonfiAdapter {
     ) -> Result<Vec<Instruction>> {
         let pool = pool_data
             .as_any()
-            .downcast_ref::<GoonfiPool>()
+            .downcast_ref::<BisonfiPool>()
             .ok_or_else(|| anyhow::anyhow!("Failed to downcast pool data"))?;
 
-        let is_user_bid = !a_to_b;
         let swap_params = SwapParams {
-            is_user_bid,
-            bump: 0xff,
             amount_in,
             min_amount_out,
+            a_to_b: !a_to_b as u8,
         };
 
-        // Goonfi swap data
         let mut data = Vec::with_capacity(18);
-        data.extend_from_slice(&GOONFI_SWAP_SELECTOR);
+        data.extend_from_slice(&BISONFI_SWAP_SELECTOR);
         data.extend_from_slice(&borsh::to_vec(&swap_params)?);
 
         let user_ata_a = get_ata(user, &pool.mint_a, &pool.token_program_a);
         let user_ata_b = get_ata(user, &pool.mint_b, &pool.token_program_b);
-        let blacklist = Pubkey::from_str("EMnJF7cbUBF3anzozC1JhZtj9qPtbAqnJtpMuGzpEnKB").unwrap();
 
         let accounts = vec![
             AccountMeta::new(*user, true), // signer
             AccountMeta::new(pool.pk, false),
-            AccountMeta::new(user_ata_a, false),
-            AccountMeta::new(user_ata_b, false),
             AccountMeta::new(pool.vault_a, false),
             AccountMeta::new(pool.vault_b, false),
-            AccountMeta::new_readonly(blacklist, false),
-            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
+            AccountMeta::new(user_ata_a, false),
+            AccountMeta::new(user_ata_b, false),
             AccountMeta::new_readonly(pool.token_program_a, false),
+            AccountMeta::new_readonly(pool.token_program_b, false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
         ];
 
         Ok(vec![Instruction {
-            program_id: GOONFI_PROGRAM_ID,
+            program_id: BISONFI_PROGRAM_ID,
             accounts,
             data,
         }])

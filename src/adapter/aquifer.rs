@@ -116,8 +116,8 @@ impl AquiferAdapter {
 
     fn parse_aqufier_pool(
         &self,
-        pool_address: &Pubkey,
-        get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
+        _pool_address: &Pubkey,
+        _get_account: &mut dyn FnMut(&Pubkey) -> Result<MiniAccount>,
     ) -> Result<Box<dyn PoolData>> {
         anyhow::bail!("Not implemented");
     }

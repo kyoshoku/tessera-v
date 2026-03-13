@@ -27,13 +27,6 @@ pub struct SwapParams {
 }
 
 #[derive(Debug, Clone)]
-pub struct VaultInfo {
-    pub address: Pubkey,
-    pub ata: Pubkey,
-    pub oracle: Pubkey,
-}
-
-#[derive(Debug, Clone)]
 pub struct ZeroFiPool {
     pub pk: Pubkey,
     pub mint_a: Pubkey,
@@ -59,6 +52,8 @@ impl PoolData for ZeroFiPool {
         println!("Mint B: {}", self.mint_b);
         println!("Vault A: {}", self.vault_a);
         println!("Vault B: {}", self.vault_b);
+        println!("Update Authority A: {}", self.update_authority_a);
+        println!("Update Authority B: {}", self.update_authority_b);
         println!("Oracle Price: ${:.4}", self.oracle_price);
     }
 
@@ -145,18 +140,6 @@ impl ZeroFiAdapter {
         let decimals_b = Mint::unpack_unchecked(&mint_b_account.data)
             .unwrap()
             .decimals;
-
-        println!("Vault account: {}", vault_a_state);
-        let vault_account = get_account(&vault_a_state)?;
-        let data = &vault_account.data;
-
-        // Oracle Price @ byte 16 (8 bytes, u64 in pico-USDC)
-        for i in 182..816 {
-            let val = u64::from_le_bytes(data[i..i + 8].try_into().unwrap());
-            if val.to_string().starts_with("33") {
-                println!("{} - {}", i, val as f64);
-            }
-        }
 
         Ok(Box::new(ZeroFiPool {
             pk: *pool_address,
